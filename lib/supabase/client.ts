@@ -1,9 +1,9 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isSupabaseConfigured } from "@/lib/auth";
+import { getSupabasePublicKey, isSupabaseConfigured } from "@/lib/auth";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const key = getSupabasePublicKey();
 
 let client: SupabaseClient | null = null;
 

@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getAllowedRoles, hasAllowedRole, isSupabaseConfigured, orderRoles, type AppRole } from "@/lib/auth";
+import { getAllowedRoles, getSupabasePublicKey, hasAllowedRole, isSupabaseConfigured, orderRoles, type AppRole } from "@/lib/auth";
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -12,9 +12,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=supabase-not-configured", request.url));
   }
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!.trim();
+  const key = getSupabasePublicKey()!;
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    key,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),

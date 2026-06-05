@@ -69,9 +69,13 @@ export function isSupabaseConfigured() {
   return getSupabaseConfigError() === null;
 }
 
+export function getSupabasePublicKey() {
+  return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+}
+
 export function getSupabaseConfigError() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = getSupabasePublicKey();
 
   if (!url || !key) return "Supabase environment variables are missing.";
   if (url.includes("your-project") || key === "your-anon-key") return "Supabase environment variables still contain placeholder values.";
