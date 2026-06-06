@@ -64,6 +64,8 @@ Browser-safe variables:
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+# Backward-compatible fallback:
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 

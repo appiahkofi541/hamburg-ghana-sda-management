@@ -17,9 +17,9 @@ export default function LoginPage() {
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("error");
     if (reason === "supabase-not-configured") {
-      setError("Supabase is not configured. Add the project URL and anonymous key to .env.local.");
+      setError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in Vercel or .env.local.");
     } else if (reason === "supabase-unavailable") {
-      setError("Supabase could not be reached. Check the project URL, anonymous key, and network connection.");
+      setError("Supabase could not be reached. Check the project URL, public key, and network connection.");
     } else if (reason === "auth-callback") {
       setError("The authentication link could not be completed. Request a new link and try again.");
     }
@@ -32,7 +32,7 @@ export default function LoginPage() {
 
     const supabase = createClient();
     if (!supabase) {
-      setError("Supabase is not configured. Add the project URL and anonymous key to .env.local.");
+      setError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in Vercel or .env.local.");
       setLoading(false);
       return;
     }
