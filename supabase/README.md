@@ -69,6 +69,7 @@ https://your-production-domain.example/auth/callback?next=/change-password
 40. `202606070001_add_real_rbac_enum_values.sql`
 41. `202606070002_real_user_roles_permissions.sql`
 42. `202606070003_member_photo_upload_rbac.sql`
+43. `202606070004_member_photo_super_admin_permissions.sql`
 
 ## Main tables
 
