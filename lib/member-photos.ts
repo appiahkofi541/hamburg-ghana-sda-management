@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-const maxSize = 2 * 1024 * 1024;
+const maxSize = 4 * 1024 * 1024;
 
 function extension(file: File) {
   if (file.type === "image/png") return "png";
@@ -11,7 +11,7 @@ function extension(file: File) {
 
 export function validateMemberPhoto(file: File) {
   if (!allowedTypes.includes(file.type)) return "Profile photos must be JPG, JPEG, PNG, or WEBP.";
-  if (file.size > maxSize) return "Profile photo must be 2 MB or smaller.";
+  if (file.size > maxSize) return "Profile photo must be 4 MB or smaller.";
   return "";
 }
 
@@ -59,15 +59,13 @@ export async function uploadMemberPhoto(supabase: SupabaseClient, memberId: stri
   const photoUrl = supabase.storage.from("member-photos").getPublicUrl(originalPath).data.publicUrl;
   const thumbnailUrl = supabase.storage.from("member-photos").getPublicUrl(thumbnailPath).data.publicUrl;
 
-  const { error } = await supabase
-    .from("members")
-    .update({
-      photo_url: photoUrl,
-      photo_thumbnail_url: thumbnailUrl,
-      photo_path: originalPath,
-      photo_thumbnail_path: thumbnailPath,
-    })
-    .eq("id", memberId);
+  const { error } = await supabase.rpc("update_member_profile_photo", {
+    target_member_id: memberId,
+    new_photo_url: photoUrl,
+    new_photo_thumbnail_url: thumbnailUrl,
+    new_photo_path: originalPath,
+    new_photo_thumbnail_path: thumbnailPath,
+  });
   if (error) throw new Error(error.message);
 
   return { photoUrl, thumbnailUrl, photoPath: originalPath, thumbnailPath };

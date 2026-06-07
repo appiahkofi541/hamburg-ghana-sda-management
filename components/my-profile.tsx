@@ -84,6 +84,7 @@ export function MyProfile() {
             <label className="block">
               <span className="sr-only">Change profile photo</span>
               <input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="block w-44 text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-blue-50 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-churchblue" disabled={savingPhoto} type="file" onChange={(event) => changePhoto(event.target.files?.[0] ?? null)} />
+              <span className="mt-1 block max-w-44 text-xs text-slate-400">JPG, PNG, or WEBP. 4 MB max.</span>
             </label>
           </div>
           <div>

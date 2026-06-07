@@ -68,6 +68,7 @@ https://your-production-domain.example/auth/callback?next=/change-password
 39. `202606040002_member_photo_storage_policies.sql`
 40. `202606070001_add_real_rbac_enum_values.sql`
 41. `202606070002_real_user_roles_permissions.sql`
+42. `202606070003_member_photo_upload_rbac.sql`
 
 ## Main tables
 
@@ -79,6 +80,7 @@ https://your-production-domain.example/auth/callback?next=/change-password
 - `funds`, `contribution_batches`, `contributions`
 - `events`, `announcements`
 - `prayer_requests`, `prayer_testimonies`
+- `member-photos` public Storage bucket for member profile photos
 - `sermon_categories`, `sermons`, and the public `sermon-media` Storage bucket
 - `livestream_settings`, `livestreams`
 - `whatsapp_contacts`, `whatsapp_campaigns`, `whatsapp_deliveries`
