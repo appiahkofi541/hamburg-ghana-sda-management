@@ -16,7 +16,7 @@ export const FINANCE_FUNDS = [
 ] as const;
 
 export const FINANCE_ACCOUNT_TYPES = ["Income", "Expense", "Asset", "Liability", "Fund"] as const;
-export const FINANCE_TRANSACTION_TYPES = ["Tithe", "Offering", "Building Fund", "Mission Offering", "Donation", "Welfare", "Other"] as const;
+export const FINANCE_TRANSACTION_TYPES = ["Tithe", "Offering", "Thanksgiving", "Building Fund", "Welfare Fund", "Special Donations", "Other"] as const;
 export const FINANCE_REPORTS = [
   "Income and Expenditure",
   "Cash Book",
