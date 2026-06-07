@@ -23,7 +23,7 @@ import {
 import { positiveNumber, required } from "@/lib/validation";
 import type { TranslationKey } from "@/lib/i18n";
 
-type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "annual" | "accounts" | "transactions" | "reports" | "cash" | "bank" | "income" | "whatsapp";
+type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "quarterly" | "annual" | "accounts" | "transactions" | "reports" | "cash" | "bank" | "income" | "whatsapp";
 type AccountStatus = "Active" | "Inactive";
 type StoredTransactionType = FinanceTransactionType | "Income" | "Expenditure" | "Transfer" | "Expense" | "Other Church Payment";
 type PaymentMethod = "Cash" | "Bank Transfer" | "Card" | "Mobile Money" | "Other";
@@ -83,6 +83,7 @@ const tabs: { id: FinanceTab; label: string }[] = [
   { id: "history", label: "Contribution History" },
   { id: "statement", label: "Member Statement" },
   { id: "monthly", label: "Monthly Report" },
+  { id: "quarterly", label: "Quarterly Report" },
   { id: "annual", label: "Annual Report" },
   { id: "accounts", label: "Accounts" },
   { id: "transactions", label: "Payments" },
@@ -135,6 +136,7 @@ const emptyTransaction: TransactionForm = {
   reference: "",
 };
 const paymentMethods: PaymentMethod[] = ["Cash", "Bank Transfer", "Card", "Mobile Money", "Other"];
+const chartCategories = ["Tithe", "Offering", "Building Fund", "Welfare Fund"] as const;
 
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 
@@ -177,6 +179,19 @@ function monthKey(date: string) {
 
 function signedAmount(transaction: Transaction) {
   return ["Expenditure", "Expense"].includes(transaction.type) ? -transaction.amount : transaction.amount;
+}
+
+function contributionLabel(transaction: Transaction) {
+  return transaction.categoryName || transaction.type;
+}
+
+function matchesCategory(transaction: Transaction, category: string) {
+  return contributionLabel(transaction) === category;
+}
+
+function transactionQuarter(date: string) {
+  const month = Number(date.slice(5, 7));
+  return Math.max(1, Math.ceil(month / 3));
 }
 
 type RawFinanceMember = {
@@ -228,6 +243,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [whatsappConfigured, setWhatsappConfigured] = useState(true);
   const [query, setQuery] = useState("");
   const [statementMemberId, setStatementMemberId] = useState("");
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedCategory, setSelectedCategory] = useState("All Categories");
   const [report, setReport] = useState<FinanceReport>("Income and Expenditure");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -364,14 +381,27 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }, [transactions]);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentYear = new Date().getFullYear().toString();
+  const currentQuarter = transactionQuarter(new Date().toISOString().slice(0, 10));
+  const availableYears = useMemo(() => {
+    const years = [...new Set(transactions.map((item) => item.date.slice(0, 4)))].sort((left, right) => right.localeCompare(left));
+    return years.length ? years : [currentYear];
+  }, [currentYear, transactions]);
+  const financeCategories = useMemo(() => ["All Categories", ...new Set(transactions.map(contributionLabel).filter(Boolean))], [transactions]);
+  const filteredByYearCategory = useMemo(() => filteredTransactions.filter((item) =>
+    (!selectedYear || item.date.startsWith(selectedYear))
+    && (selectedCategory === "All Categories" || matchesCategory(item, selectedCategory))
+  ), [filteredTransactions, selectedCategory, selectedYear]);
   const monthlyTransactions = filteredTransactions.filter((item) => item.date.startsWith(currentMonth));
-  const annualTransactions = filteredTransactions.filter((item) => item.date.startsWith(currentYear));
-  const statementRows = filteredTransactions.filter((item) => !statementMemberId || item.memberId === statementMemberId);
+  const quarterlyTransactions = filteredTransactions.filter((item) => item.date.startsWith(currentYear) && transactionQuarter(item.date) === currentQuarter);
+  const annualTransactions = filteredTransactions.filter((item) => item.date.startsWith(selectedYear));
+  const statementRows = filteredByYearCategory.filter((item) => !statementMemberId || item.memberId === statementMemberId);
   const totalTitheThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Tithe").reduce((sum, item) => sum + item.amount, 0);
   const totalOfferingsThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Offering").reduce((sum, item) => sum + item.amount, 0);
   const totalDonationsThisMonth = monthlyTransactions.filter((item) => ["Thanksgiving", "Special Donations", "Other", "Donation"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
-  const categoryTotals = useMemo(() => groupTotals(filteredTransactions, (item) => item.categoryName || item.type), [filteredTransactions]);
-  const memberTotals = useMemo(() => groupTotals(filteredTransactions, (item) => item.memberName || "Unassigned"), [filteredTransactions]);
+  const categoryTotals = useMemo(() => groupTotals(filteredByYearCategory, contributionLabel), [filteredByYearCategory]);
+  const memberTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => item.memberName || "Unassigned"), [filteredByYearCategory]);
+  const chartTotals = chartCategories.map((category) => ({ category, value: filteredByYearCategory.filter((item) => matchesCategory(item, category)).reduce((sum, item) => sum + item.amount, 0) }));
+  const reportRows = activeTab === "monthly" ? monthlyTransactions : activeTab === "quarterly" ? quarterlyTransactions : activeTab === "annual" ? annualTransactions : activeTab === "statement" ? statementRows : filteredByYearCategory;
 
   function openAccount(account?: Account) {
     if (!isTreasurer) return;
@@ -616,27 +646,32 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   async function exportPdf() {
     const [{ jsPDF }, autoTableModule] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const document = new jsPDF({ orientation: "landscape" });
-    document.text(`Hamburg Ghana SDA Church - ${report} Report`, 14, 16);
+    const selectedMember = members.find((member) => member.id === statementMemberId);
+    const title = activeTab === "statement" ? `Annual Contribution Statement - ${selectedMember?.name ?? "All Members"}` : `${report} Report`;
+    document.setFontSize(16);
+    document.text("Hamburg Ghana SDA Church", 14, 14);
+    document.setFontSize(10);
+    document.text(`${title} | Year: ${selectedYear} | Category: ${selectedCategory}`, 14, 21);
     autoTableModule.default(document, {
-      startY: 24,
+      startY: 28,
       head: [["Date", "Member", "Contribution Type", "Account", "Entered By", "Reference", "Amount"]],
-      body: filteredTransactions.map((item) => [item.date, item.memberName, item.categoryName || item.type, item.accountName, item.enteredBy, item.reference, currency.format(item.amount)]),
+      body: reportRows.map((item) => [item.date, item.memberName, contributionLabel(item), item.accountName, item.enteredBy, item.reference, currency.format(item.amount)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [8, 41, 76] },
     });
-    document.save(`Hamburg-Ghana-SDA-${report.replaceAll(" ", "-")}.pdf`);
+    document.save(`Hamburg-Ghana-SDA-${title.replaceAll(" ", "-")}-${selectedYear}.pdf`);
   }
 
   function exportExcel() {
     const headers = ["Date", "Member", "Type", "Account", "Category", "Currency", "Entered By", "Reference", "Amount"];
     const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
     const row = (values: string[]) => `<Row>${values.map((value) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`;
-    const rows = filteredTransactions.map((item) => row([item.date, item.memberName, item.categoryName || item.type, item.accountName, item.categoryName, item.currency, item.enteredBy, item.reference, String(item.amount)]));
+    const rows = reportRows.map((item) => row([item.date, item.memberName, contributionLabel(item), item.accountName, item.categoryName, item.currency, item.enteredBy, item.reference, String(item.amount)]));
     const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Finance"><Table>${row(headers)}${rows.join("")}</Table></Worksheet></Workbook>`;
     const url = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.ms-excel" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Hamburg-Ghana-SDA-${report.replaceAll(" ", "-")}.xls`;
+    link.download = `Hamburg-Ghana-SDA-${report.replaceAll(" ", "-")}-${selectedYear}.xls`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -690,6 +725,15 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         </section>
       )}
 
+      {activeTab === "dashboard" && (
+        <Card>
+          <CardHeader><div><h2 className="font-bold text-navy">Giving Dashboard Charts</h2><p className="mt-1 text-xs text-slate-400">Tithe, offering, building fund, and welfare fund totals for {selectedYear}</p></div><BarChart3 className="h-5 w-5 text-churchblue" /></CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {chartTotals.map(({ category, value }) => <ChartCard key={category} label={category} value={value} max={Math.max(...chartTotals.map((item) => item.value), 1)} />)}
+          </CardContent>
+        </Card>
+      )}
+
       {activeTab === "add" && (
         <Card className="p-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -703,15 +747,17 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         </Card>
       )}
 
-      {(activeTab === "history" || activeTab === "statement" || activeTab === "monthly" || activeTab === "annual") && (
+      {(activeTab === "history" || activeTab === "statement" || activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && (
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="font-bold text-navy">{activeTab === "history" ? "Contribution History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : "Annual Report"}</h2>
+              <h2 className="font-bold text-navy">{activeTab === "history" ? "Contribution History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : activeTab === "quarterly" ? "Quarterly Report" : "Annual Report"}</h2>
               <p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church giving records and report summaries.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {activeTab === "statement" && <select className={fieldClass} value={statementMemberId} onChange={(event) => setStatementMemberId(event.target.value)}><option value="">All members</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select>}
+              {activeTab === "statement" && <select className={fieldClass} value={statementMemberId} onChange={(event) => setStatementMemberId(event.target.value)}><option value="">All members</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name} ({member.memberNumber})</option>)}</select>}
+              <select className={fieldClass} value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>{availableYears.map((year) => <option key={year}>{year}</option>)}</select>
+              <select className={fieldClass} value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}>{financeCategories.map((category) => <option key={category}>{category}</option>)}</select>
               <Button variant="outline" onClick={exportPdf}><Download className="h-4 w-4" /> {t("button.exportPdf")}</Button>
               <Button variant="outline" onClick={exportExcel}><FileSpreadsheet className="h-4 w-4" /> {t("button.exportExcel")}</Button>
             </div>
@@ -721,8 +767,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label="Total offerings this month" value={currency.format(totalOfferingsThisMonth)} />
             <ReportCard label="Total donations this month" value={currency.format(totalDonationsThisMonth)} />
           </div>
-          {(activeTab === "monthly" || activeTab === "annual") && <ReportBreakdowns categoryTotals={categoryTotals} memberTotals={memberTotals} />}
-          <TransactionTable rows={activeTab === "monthly" ? monthlyTransactions : activeTab === "annual" ? annualTransactions : activeTab === "statement" ? statementRows : filteredTransactions} isTreasurer={isTreasurer && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
+          {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns categoryTotals={categoryTotals} memberTotals={memberTotals} />}
+          <TransactionTable rows={reportRows} isTreasurer={isTreasurer && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
         </Card>
       )}
 
@@ -811,6 +857,11 @@ function AccountLine({ account }: { account: Account }) {
 
 function ReportCard({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-xl font-bold text-navy">{value}</p></div>;
+}
+
+function ChartCard({ label, value, max }: { label: string; value: number; max: number }) {
+  const percent = Math.max(6, Math.min((value / Math.max(max, 1)) * 100, 100));
+  return <div className="rounded-xl border border-slate-100 bg-slate-50 p-4"><div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-navy">{label}</p><p className="text-sm font-bold text-churchblue">{currency.format(value)}</p></div><div className="mt-4 h-3 rounded-full bg-white"><div className="h-3 rounded-full bg-gradient-to-r from-churchblue to-gold" style={{ width: `${percent}%` }} /></div></div>;
 }
 
 function groupTotals(rows: Transaction[], getLabel: (transaction: Transaction) => string) {

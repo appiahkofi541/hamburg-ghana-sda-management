@@ -13,13 +13,14 @@ type GivingRecord = {
   date: string;
   amount: number;
   paymentType: string;
+  memberName: string;
   receiptNumber: string;
   recordedBy: string;
   source: "Finance" | "Online";
 };
 
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
-const givingTypes = ["Tithe", "Offering", "Building Fund", "Mission Fund", "Thanksgiving", "Health & Disaster", "Harvest", "Evangelism"];
+const givingTypes = ["Tithe", "Offering", "Building Fund", "Welfare Fund", "Special Donations", "Other", "Mission Fund", "Thanksgiving", "Health & Disaster", "Harvest", "Evangelism"];
 const typeAliases: Record<string, string> = {
   tithe: "Tithe",
   offering: "Offering",
@@ -50,6 +51,7 @@ function recordMonth(record: GivingRecord) {
 export function MemberGivingPortal() {
   const [records, setRecords] = useState<GivingRecord[]>([]);
   const [query, setQuery] = useState("");
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedType, setSelectedType] = useState("All Types");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -74,7 +76,7 @@ export function MemberGivingPortal() {
       const [financeResult, onlineResult] = await Promise.all([
         supabase
           .from("finance_transactions")
-          .select("id, transaction_date, transaction_type, amount, reference_number, recorded_by_profile:profiles!finance_transactions_recorded_by_fkey(full_name), finance_categories(name)")
+          .select("id, transaction_date, transaction_type, amount, reference_number, members(full_name), recorded_by_profile:profiles!finance_transactions_recorded_by_fkey(full_name), finance_categories(name)")
           .order("transaction_date", { ascending: false }),
         supabase
           .from("online_giving_payments")
@@ -94,6 +96,7 @@ export function MemberGivingPortal() {
         date: row.transaction_date,
         amount: Number(row.amount),
         paymentType: relatedName(row.finance_categories) || labelize(row.transaction_type),
+        memberName: relatedName(row.members) || "Church Member",
         receiptNumber: row.reference_number || row.id.slice(0, 8).toUpperCase(),
         recordedBy: relatedName(row.recorded_by_profile) || "Church Treasurer",
         source: "Finance" as const,
@@ -103,6 +106,7 @@ export function MemberGivingPortal() {
         date: String(row.completed_at ?? row.created_at).slice(0, 10),
         amount: Number(row.amount),
         paymentType: labelize(relatedName(row.funds)),
+        memberName: "Online Donor",
         receiptNumber: row.receipt_number,
         recordedBy: "Online Giving",
         source: "Online" as const,
@@ -117,13 +121,15 @@ export function MemberGivingPortal() {
     const normalized = query.trim().toLowerCase();
     return records.filter((record) =>
       (selectedType === "All Types" || record.paymentType === selectedType)
+      && (!selectedYear || record.date.startsWith(selectedYear))
       && (!normalized || Object.values(record).some((value) => String(value).toLowerCase().includes(normalized))),
     );
-  }, [query, records, selectedType]);
+  }, [query, records, selectedType, selectedYear]);
 
   const total = filtered.reduce((sum, record) => sum + record.amount, 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentYear = new Date().getFullYear().toString();
+  const years = [...new Set(records.map((record) => record.date.slice(0, 4)))].sort((left, right) => right.localeCompare(left));
   const monthlyTotal = records.filter((record) => recordMonth(record) === currentMonth).reduce((sum, record) => sum + record.amount, 0);
   const yearlyTotal = records.filter((record) => record.date.startsWith(currentYear)).reduce((sum, record) => sum + record.amount, 0);
   const typeTotals = givingTypes.map((type) => ({ type, value: records.filter((record) => record.paymentType === type).reduce((sum, record) => sum + record.amount, 0) }));
@@ -139,11 +145,11 @@ export function MemberGivingPortal() {
     document.setFontSize(16);
     document.text("Hamburg Ghana SDA Church - Contribution Statement", 14, 16);
     document.setFontSize(9);
-    document.text(`Total: ${currency.format(total)} | Records: ${filtered.length}`, 14, 23);
+    document.text(`Year: ${selectedYear} | Category: ${selectedType} | Total: ${currency.format(total)} | Records: ${filtered.length}`, 14, 23);
     autoTableModule.default(document, {
       startY: 30,
-      head: [["Date", "Payment Type", "Receipt Number", "Recorded By", "Amount"]],
-      body: filtered.map((record) => [record.date, record.paymentType, record.receiptNumber, record.recordedBy, currency.format(record.amount)]),
+      head: [["Date", "Member", "Payment Type", "Receipt Number", "Recorded By", "Amount"]],
+      body: filtered.map((record) => [record.date, record.memberName, record.paymentType, record.receiptNumber, record.recordedBy, currency.format(record.amount)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [8, 41, 76] },
     });
@@ -175,16 +181,17 @@ export function MemberGivingPortal() {
           <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search receipt, type, date, or recorder..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
           <div className="flex flex-wrap gap-2">
             <select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none" value={selectedType} onChange={(event) => setSelectedType(event.target.value)}><option>All Types</option>{givingTypes.map((type) => <option key={type}>{type}</option>)}</select>
+            <select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 outline-none" value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>{(years.length ? years : [currentYear]).map((year) => <option key={year}>{year}</option>)}</select>
             <Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4" /> Print Statement</Button>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-sm">
-            <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Payment Type", "Receipt Number", "Recorded By", "Source", "Amount"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
+            <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member", "Payment Type", "Receipt Number", "Recorded By", "Source", "Amount"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
             <tbody>
-              {loading && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>Loading giving history...</td></tr>}
-              {filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={`${record.source}-${record.id}`}><td className="px-5 py-4 font-semibold text-navy">{record.date}</td><td className="px-5 py-4"><StatusBadge tone="gold">{record.paymentType}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{record.receiptNumber}</td><td className="px-5 py-4 text-slate-600">{record.recordedBy}</td><td className="px-5 py-4 text-slate-500">{record.source}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(record.amount)}</td></tr>)}
-              {!loading && filtered.length === 0 && <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={6}>No giving records found.</td></tr>}
+              {loading && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={7}>Loading giving history...</td></tr>}
+              {filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={`${record.source}-${record.id}`}><td className="px-5 py-4 font-semibold text-navy">{record.date}</td><td className="px-5 py-4 text-slate-600">{record.memberName}</td><td className="px-5 py-4"><StatusBadge tone="gold">{record.paymentType}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{record.receiptNumber}</td><td className="px-5 py-4 text-slate-600">{record.recordedBy}</td><td className="px-5 py-4 text-slate-500">{record.source}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(record.amount)}</td></tr>)}
+              {!loading && filtered.length === 0 && <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={7}>No giving records found.</td></tr>}
             </tbody>
           </table>
         </div>

@@ -22,6 +22,7 @@ export const FINANCE_REPORTS = [
   "Cash Book",
   "Bank Statement",
   "Monthly Finance Summary",
+  "Quarterly Finance Summary",
   "Yearly Finance Summary",
   "Account Balance",
 ] as const;
