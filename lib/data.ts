@@ -47,7 +47,7 @@ export const offerings = [
 export const users = [
   { name: "Pastor Emmanuel Darko", email: "pastor@hamburgghanasda.de", role: "Pastor", status: "Active", lastLogin: "Today, 08:42" },
   { name: "Ruth Amoah", email: "treasury@hamburgghanasda.de", role: "Treasurer", status: "Active", lastLogin: "Today, 09:18" },
-  { name: "Grace Appiah", email: "clerk@hamburgghanasda.de", role: "Church Clerk", status: "Active", lastLogin: "Yesterday, 18:05" },
+  { name: "Grace Appiah", email: "secretary@hamburgghanasda.de", role: "Secretary", status: "Active", lastLogin: "Yesterday, 18:05" },
   { name: "Samuel Asare", email: "youth@hamburgghanasda.de", role: "Department Head", status: "Active", lastLogin: "May 28, 2026" },
-  { name: "Kwame Mensah", email: "pastor.support@hamburgghanasda.de", role: "Pastor", status: "Active", lastLogin: "May 26, 2026" },
+  { name: "Kwame Mensah", email: "elder@hamburgghanasda.de", role: "Elder", status: "Active", lastLogin: "May 26, 2026" },
 ];

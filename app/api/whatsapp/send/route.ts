@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { toAppRole } from "@/lib/auth";
 
-const allowedRoles = new Set(["super_admin", "pastor", "church_clerk"]);
+const allowedRoles = new Set(["super_admin", "pastor", "elder", "church_clerk", "secretary"]);
 
 function normalizePhone(value: string) {
   const digits = value.replace(/\D/g, "");

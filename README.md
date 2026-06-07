@@ -7,7 +7,7 @@ Built with Next.js 15, TypeScript, Tailwind CSS, Supabase Auth, PostgreSQL, Supa
 ## Current Modules
 
 - Authentication: login, logout, forgot password, change password, protected routes
-- Role-based access: Super Admin, Pastor, Church Clerk, Treasurer, Department Head, Member
+- Role-based access: Super Admin, Pastor, Elder, Church Clerk, Secretary, Treasurer, Department Head, Member
 - Dashboard with church metrics and member dashboard links
 - Member Management with add, edit, delete, search, profile, PDF export, Excel export
 - Departments and SDA ministry defaults
@@ -135,7 +135,7 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
 - [ ] Treasurer can add, edit, delete finance payments
 - [ ] Super Admin can manage all finance records
 - [ ] Member can view only their own contribution history
-- [ ] Member add/edit/delete works for Super Admin, Pastor, and Church Clerk
+- [ ] Member add/edit/delete works for Super Admin, Pastor, Elder, Church Clerk, and Secretary
 - [ ] Member role has read-only member access
 - [ ] Attendance records can be created and viewed by allowed roles
 - [ ] Events and announcements pages load

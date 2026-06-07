@@ -66,7 +66,8 @@ https://your-production-domain.example/auth/callback?next=/change-password
 37. `202606030006_finance_payment_member_workflow.sql`
 38. `202606040001_member_profile_photos.sql`
 39. `202606040002_member_photo_storage_policies.sql`
-40. `202606070001_real_user_roles_permissions.sql`
+40. `202606070001_add_real_rbac_enum_values.sql`
+41. `202606070002_real_user_roles_permissions.sql`
 
 ## Main tables
 
@@ -96,7 +97,7 @@ creating the Auth user:
 
 ```sql
 insert into public.user_roles (user_id, role)
-select id, 'admin'::public.app_role
+select id, 'super_admin'::public.app_role
 from auth.users
 where email = 'your-admin-email@example.com'
 on conflict do nothing;
@@ -123,7 +124,7 @@ All demo users share the password `DemoPass123!`:
 | Super Admin | `admin@hamburgghanasda.demo` |
 | Pastor | `pastor@hamburgghanasda.demo` |
 | Treasurer | `treasurer@hamburgghanasda.demo` |
-| Church Clerk | `secretary@hamburgghanasda.demo` |
+| Secretary | `secretary@hamburgghanasda.demo` |
 | Department Head | `departmenthead@hamburgghanasda.demo` |
 | Member | `member@hamburgghanasda.demo` |
 
