@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getAllowedRoles, getSupabasePublicKey, hasAllowedRole, isSupabaseConfigured, orderRoles, type AppRole } from "@/lib/auth";
+import { getAllowedRoles, getSupabasePublicKey, hasAllowedRole, isSupabaseConfigured, normalizeRoles } from "@/lib/auth";
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -60,7 +60,7 @@ export async function updateSession(request: NextRequest) {
   } catch {
     return NextResponse.redirect(new URL("/login?error=supabase-unavailable", request.url));
   }
-  const roles = orderRoles((data ?? []).map(({ role }) => role as AppRole));
+  const roles = normalizeRoles((data ?? []).map(({ role }) => role));
 
   if (!hasAllowedRole(roles, allowedRoles)) {
     return NextResponse.redirect(new URL("/unauthorized", request.url));

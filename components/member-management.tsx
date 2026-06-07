@@ -115,7 +115,7 @@ export function MemberManagement() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManage((roleRows ?? []).some(({ role }) => ["admin", "pastor", "secretary"].includes(role)));
+          setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "church_clerk"].includes(role)));
         }
         const { data, error: loadError } = await supabase.from("members").select("*, department_members(departments(name))").order("last_name");
         if (loadError) {

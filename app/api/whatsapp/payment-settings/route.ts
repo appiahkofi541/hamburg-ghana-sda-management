@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { toAppRole } from "@/lib/auth";
 
-const allowedRoles = new Set(["admin", "treasurer"]);
+const allowedRoles = new Set(["super_admin", "treasurer"]);
 
 async function requireFinanceRole() {
   const supabase = await createClient();
@@ -10,7 +11,10 @@ async function requireFinanceRole() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
   const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-  if (!(roles ?? []).some(({ role }) => allowedRoles.has(role))) return { error: NextResponse.json({ error: "Only Admin and Treasurer can manage WhatsApp payment settings." }, { status: 403 }) };
+  if (!(roles ?? []).some(({ role }) => {
+    const appRole = toAppRole(role);
+    return appRole ? allowedRoles.has(appRole) : false;
+  })) return { error: NextResponse.json({ error: "Only Super Admin and Treasurer can manage WhatsApp payment settings." }, { status: 403 }) };
   return { userId: user.id };
 }
 

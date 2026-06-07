@@ -1,9 +1,8 @@
 export const APP_ROLES = [
-  "admin",
+  "super_admin",
   "pastor",
-  "elder",
+  "church_clerk",
   "treasurer",
-  "secretary",
   "department_head",
   "member",
 ] as const;
@@ -11,11 +10,10 @@ export const APP_ROLES = [
 export type AppRole = (typeof APP_ROLES)[number];
 
 export const ROLE_LABELS: Record<AppRole, string> = {
-  admin: "Admin",
+  super_admin: "Super Admin",
   pastor: "Pastor",
-  elder: "Elder",
+  church_clerk: "Church Clerk",
   treasurer: "Treasurer",
-  secretary: "Secretary",
   department_head: "Department Head",
   member: "Member",
 };
@@ -24,27 +22,39 @@ const rolePriority = new Map(APP_ROLES.map((role, index) => [role, index]));
 
 const allRoles = [...APP_ROLES];
 
+const LEGACY_ROLE_MAP: Record<string, AppRole> = {
+  admin: "super_admin",
+  secretary: "church_clerk",
+  elder: "pastor",
+  pastor: "pastor",
+  treasurer: "treasurer",
+  department_head: "department_head",
+  member: "member",
+  super_admin: "super_admin",
+  church_clerk: "church_clerk",
+};
+
 export const ROUTE_ROLES: Record<string, AppRole[]> = {
   "/dashboard": allRoles,
-  "/members": allRoles,
+  "/members": ["super_admin", "pastor", "church_clerk", "department_head"],
   "/my-profile": allRoles,
   "/my-attendance": allRoles,
   "/my-contributions": allRoles,
-  "/departments": ["admin", "pastor", "elder", "secretary", "department_head"],
-  "/attendance": ["admin", "pastor", "elder", "secretary", "department_head"],
-  "/offerings": ["admin", "treasurer"],
+  "/departments": ["super_admin", "pastor", "church_clerk", "department_head"],
+  "/attendance": ["super_admin", "pastor", "church_clerk", "department_head"],
+  "/offerings": ["super_admin", "treasurer"],
   "/giving": allRoles,
-  "/giving-history": allRoles,
+  "/giving-history": ["super_admin", "treasurer"],
   "/events": allRoles,
   "/announcements": allRoles,
   "/prayer-requests": allRoles,
   "/sermons": allRoles,
   "/livestream": allRoles,
-  "/whatsapp": ["admin", "pastor", "secretary"],
-  "/reports": ["admin", "pastor", "elder", "treasurer", "secretary"],
-  "/advanced-modules": ["admin", "pastor"],
-  "/settings": ["admin"],
-  "/users": ["admin"],
+  "/whatsapp": ["super_admin", "pastor", "church_clerk"],
+  "/reports": ["super_admin", "pastor", "treasurer"],
+  "/advanced-modules": ["super_admin", "pastor"],
+  "/settings": ["super_admin"],
+  "/users": ["super_admin"],
   "/change-password": allRoles,
 };
 
@@ -54,15 +64,23 @@ export function getAllowedRoles(pathname: string) {
 }
 
 export function hasAllowedRole(userRoles: AppRole[], allowedRoles: AppRole[]) {
-  return userRoles.some((role) => allowedRoles.includes(role));
+  return userRoles.includes("super_admin") || userRoles.some((role) => allowedRoles.includes(role));
 }
 
 export function orderRoles(userRoles: AppRole[]) {
-  return [...new Set(userRoles)].sort((left, right) => rolePriority.get(left)! - rolePriority.get(right)!);
+  return [...new Set(userRoles)].sort((left, right) => (rolePriority.get(left) ?? 999) - (rolePriority.get(right) ?? 999));
 }
 
 export function getPrimaryRole(userRoles: AppRole[]) {
   return orderRoles(userRoles)[0] ?? "member";
+}
+
+export function toAppRole(value: string | null | undefined) {
+  return value ? LEGACY_ROLE_MAP[value] ?? null : null;
+}
+
+export function normalizeRoles(values: (string | null | undefined)[]) {
+  return orderRoles(values.map(toAppRole).filter((role): role is AppRole => Boolean(role)));
 }
 
 export function isSupabaseConfigured() {

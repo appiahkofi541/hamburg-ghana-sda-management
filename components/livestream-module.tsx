@@ -59,7 +59,7 @@ export function LivestreamModule() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      setCanManage((roles ?? []).some(({ role }) => ["admin", "pastor", "secretary"].includes(role)));
+      setCanManage((roles ?? []).some(({ role }) => ["super_admin", "pastor", "church_clerk"].includes(role)));
     }
     const [{ data: settings, error: settingsError }, { data: streamRows, error: streamError }, { data: sermonRows, error: sermonError }] = await Promise.all([
       supabase.from("livestream_settings").select("*").eq("id", "church").single(),

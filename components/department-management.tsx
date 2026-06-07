@@ -39,7 +39,7 @@ export function DepartmentManagement() {
         if (user) {
           setUserId(user.id);
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManageAll((roleRows ?? []).some(({ role }) => ["admin", "pastor", "elder", "secretary"].includes(role)));
+          setCanManageAll((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "church_clerk"].includes(role)));
         }
         const { data, error: loadError } = await supabase.from("departments").select("*").order("name");
         if (loadError) setError(loadError.message);

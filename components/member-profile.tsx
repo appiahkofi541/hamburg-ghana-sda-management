@@ -35,7 +35,7 @@ export function MemberProfile({ id }: { id: string }) {
         setMember(data);
         if (user && data) {
           const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManagePhoto((roles ?? []).some(({ role }) => ["admin", "secretary"].includes(role)) || data.profile_id === user.id);
+          setCanManagePhoto((roles ?? []).some(({ role }) => ["super_admin", "church_clerk"].includes(role)) || data.profile_id === user.id);
         }
       } else {
         const stored = JSON.parse(window.localStorage.getItem("hamburg-ghana-sda-members") || "[]");

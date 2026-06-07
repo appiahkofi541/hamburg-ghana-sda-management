@@ -93,7 +93,7 @@ export function CalendarManagement() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManage((roleRows ?? []).some(({ role }) => ["admin", "pastor", "secretary", "department_head"].includes(role)));
+          setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "church_clerk", "department_head"].includes(role)));
         }
         const { data } = await supabase.from("events").select("*").order("starts_at");
         if (data?.length) {

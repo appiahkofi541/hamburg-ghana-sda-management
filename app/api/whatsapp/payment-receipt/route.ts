@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { sendPaymentWhatsAppReceipt } from "@/lib/whatsapp/payment-receipts";
+import { toAppRole } from "@/lib/auth";
 
 async function requireTreasurer() {
   const supabase = await createClient();
@@ -9,7 +10,10 @@ async function requireTreasurer() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
   const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-  if (!(roles ?? []).some(({ role }) => role === "treasurer")) return { error: NextResponse.json({ error: "Only Treasurer can send payment WhatsApp notifications." }, { status: 403 }) };
+  if (!(roles ?? []).some(({ role }) => {
+    const appRole = toAppRole(role);
+    return appRole === "treasurer" || appRole === "super_admin";
+  })) return { error: NextResponse.json({ error: "Only Treasurer or Super Admin can send payment WhatsApp notifications." }, { status: 403 }) };
   return {};
 }
 

@@ -77,7 +77,7 @@ export function PrayerRequestPortal() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManage((roleRows ?? []).some(({ role }) => role === "admin" || role === "pastor"));
+          setCanManage((roleRows ?? []).some(({ role }) => role === "super_admin" || role === "pastor"));
         }
         const [{ data: prayerRows, error: prayerError }, { data: testimonyRows, error: testimonyError }] = await Promise.all([
           supabase.from("prayer_requests").select("*, profiles(full_name)").order("created_at", { ascending: false }),

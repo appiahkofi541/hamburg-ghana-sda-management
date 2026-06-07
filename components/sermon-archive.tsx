@@ -73,7 +73,7 @@ export function SermonArchive() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      setCanManage((roleRows ?? []).some(({ role }) => ["admin", "pastor", "secretary"].includes(role)));
+      setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "church_clerk"].includes(role)));
     }
     const [{ data: categoryRows, error: categoryError }, { data: sermonRows, error: sermonError }] = await Promise.all([
       supabase.from("sermon_categories").select("id, name").order("name"),

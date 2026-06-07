@@ -67,10 +67,10 @@ where user_id in (
 -- roles, but the baseline member role is not retained for elevated accounts.
 insert into public.user_roles (user_id, role)
 values
-  ('a0000000-0000-0000-0000-000000000001', 'admin'),
+  ('a0000000-0000-0000-0000-000000000001', 'super_admin'),
   ('a0000000-0000-0000-0000-000000000002', 'pastor'),
   ('a0000000-0000-0000-0000-000000000003', 'treasurer'),
-  ('a0000000-0000-0000-0000-000000000004', 'secretary'),
+  ('a0000000-0000-0000-0000-000000000004', 'church_clerk'),
   ('a0000000-0000-0000-0000-000000000005', 'department_head'),
   ('a0000000-0000-0000-0000-000000000006', 'member');
 

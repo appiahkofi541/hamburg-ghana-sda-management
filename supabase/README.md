@@ -64,6 +64,9 @@ https://your-production-domain.example/auth/callback?next=/change-password
 35. `202606030004_finance_payment_permissions.sql`
 36. `202606030005_language_preference.sql`
 37. `202606030006_finance_payment_member_workflow.sql`
+38. `202606040001_member_profile_photos.sql`
+39. `202606040002_member_photo_storage_policies.sql`
+40. `202606070001_real_user_roles_permissions.sql`
 
 ## Main tables
 
@@ -117,10 +120,10 @@ All demo users share the password `DemoPass123!`:
 
 | Role | Email |
 | --- | --- |
-| Admin | `admin@hamburgghanasda.demo` |
+| Super Admin | `admin@hamburgghanasda.demo` |
 | Pastor | `pastor@hamburgghanasda.demo` |
 | Treasurer | `treasurer@hamburgghanasda.demo` |
-| Secretary | `secretary@hamburgghanasda.demo` |
+| Church Clerk | `secretary@hamburgghanasda.demo` |
 | Department Head | `departmenthead@hamburgghanasda.demo` |
 | Member | `member@hamburgghanasda.demo` |
 

@@ -1,7 +1,7 @@
 import { PortalShell } from "@/components/portal-shell";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { orderRoles, type AppRole } from "@/lib/auth";
+import { normalizeRoles } from "@/lib/auth";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -18,7 +18,7 @@ export default async function PortalLayout({ children }: { children: React.React
   if (profileError || roleError) redirect("/login?error=supabase-unavailable");
   if (!profile?.is_active) redirect("/unauthorized");
 
-  const roles = orderRoles((roleRows ?? []).map(({ role }) => role as AppRole));
+  const roles = normalizeRoles((roleRows ?? []).map(({ role }) => role));
   if (!roles.length) redirect("/unauthorized");
 
   return (

@@ -20,7 +20,7 @@ export async function PATCH(request: Request) {
   if ("error" in auth) return auth.error;
   const body = await request.json() as { action?: "role" | "deactivate" | "reset_password"; userId?: string; email?: string; role?: AppRole };
   if (!body.userId || !body.action) return NextResponse.json({ error: "User and action are required." }, { status: 400 });
-  if ((body.action === "role" || body.action === "deactivate") && body.userId === auth.user.id) return NextResponse.json({ error: "You cannot change or deactivate your own admin access." }, { status: 400 });
+  if ((body.action === "role" || body.action === "deactivate") && body.userId === auth.user.id) return NextResponse.json({ error: "You cannot change or deactivate your own Super Admin access." }, { status: 400 });
 
   if (body.action === "role") {
     if (!validRole(body.role)) return NextResponse.json({ error: "Select a valid role." }, { status: 400 });

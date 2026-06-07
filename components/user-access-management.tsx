@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { KeyRound, MailPlus, Search, ShieldCheck, UserRoundX, X } from "lucide-react";
-import { APP_ROLES, ROLE_LABELS, getPrimaryRole, type AppRole } from "@/lib/auth";
+import { APP_ROLES, ROLE_LABELS, getPrimaryRole, normalizeRoles, type AppRole } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeading } from "@/components/page-heading";
@@ -32,7 +32,7 @@ export function UserAccessManagement() {
     const result = await response.json();
     if (!response.ok) setError(result.error || "Unable to load users.");
     else {
-      setUsers(result.users.map((user: { id: string; full_name: string; email: string; is_active: boolean; created_at: string; user_roles: { role: AppRole }[] }) => ({ id: user.id, name: user.full_name, email: user.email, active: user.is_active, createdAt: user.created_at.slice(0, 10), roles: user.user_roles.map(({ role }) => role) })));
+      setUsers(result.users.map((user: { id: string; full_name: string; email: string; is_active: boolean; created_at: string; user_roles: { role: string }[] }) => ({ id: user.id, name: user.full_name, email: user.email, active: user.is_active, createdAt: user.created_at.slice(0, 10), roles: normalizeRoles(user.user_roles.map(({ role }) => role)) })));
       setInvitationsConfigured(result.capabilities?.invitationsConfigured ?? false);
     }
     setLoading(false);

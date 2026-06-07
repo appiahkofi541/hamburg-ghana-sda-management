@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { toAppRole } from "@/lib/auth";
 
-const allowedRoles = new Set(["admin", "pastor", "secretary"]);
+const allowedRoles = new Set(["super_admin", "pastor", "church_clerk"]);
 
 function normalizePhone(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -14,7 +15,10 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-  if (!(roleRows ?? []).some(({ role }) => allowedRoles.has(role))) return NextResponse.json({ error: "You do not have permission to send WhatsApp campaigns." }, { status: 403 });
+  if (!(roleRows ?? []).some(({ role }) => {
+    const appRole = toAppRole(role);
+    return appRole ? allowedRoles.has(appRole) : false;
+  })) return NextResponse.json({ error: "You do not have permission to send WhatsApp campaigns." }, { status: 403 });
 
   const { campaignId } = await request.json() as { campaignId?: string };
   if (!campaignId) return NextResponse.json({ error: "Campaign ID is required." }, { status: 400 });

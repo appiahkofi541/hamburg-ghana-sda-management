@@ -7,7 +7,7 @@ Built with Next.js 15, TypeScript, Tailwind CSS, Supabase Auth, PostgreSQL, Supa
 ## Current Modules
 
 - Authentication: login, logout, forgot password, change password, protected routes
-- Role-based access: Admin, Pastor, Elder, Treasurer, Secretary, Department Head, Member
+- Role-based access: Super Admin, Pastor, Church Clerk, Treasurer, Department Head, Member
 - Dashboard with church metrics and member dashboard links
 - Member Management with add, edit, delete, search, profile, PDF export, Excel export
 - Departments and SDA ministry defaults
@@ -99,7 +99,7 @@ For manual SQL Editor deployment, open each migration file in filename order and
 
 Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for disposable testing only.
 
-## Admin User Setup
+## Super Admin User Setup
 
 1. Create the first user in Supabase Authentication.
 2. Confirm the user email.
@@ -107,7 +107,7 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
 
    ```sql
    insert into public.user_roles (user_id, role)
-   select id, 'admin'::public.app_role
+   select id, 'super_admin'::public.app_role
    from auth.users
    where email = 'your-admin-email@example.com'
    on conflict do nothing;
@@ -121,7 +121,7 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
    where email = 'your-admin-email@example.com';
    ```
 
-5. Sign in and verify the user displays as Admin.
+5. Sign in and verify the user displays as Super Admin.
 
 ## Testing Checklist
 
@@ -131,11 +131,11 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
 - [ ] Login works
 - [ ] Logout works
 - [ ] Forgot password email and callback work
-- [ ] Admin can manage users
+- [ ] Super Admin can manage users
 - [ ] Treasurer can add, edit, delete finance payments
-- [ ] Admin can view finance records but cannot edit/delete
+- [ ] Super Admin can manage all finance records
 - [ ] Member can view only their own contribution history
-- [ ] Member add/edit/delete works for Admin, Pastor, Secretary
+- [ ] Member add/edit/delete works for Super Admin, Pastor, and Church Clerk
 - [ ] Member role has read-only member access
 - [ ] Attendance records can be created and viewed by allowed roles
 - [ ] Events and announcements pages load
@@ -149,7 +149,7 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
 - [ ] Create production Supabase project
 - [ ] Apply all migrations in order
 - [ ] Do not apply demo seed data
-- [ ] Create and bootstrap production Admin user
+- [ ] Create and bootstrap production Super Admin user
 - [ ] Import repo into Vercel
 - [ ] Confirm framework preset is Next.js
 - [ ] Confirm Node.js `22.x`
@@ -177,9 +177,9 @@ Do not run [supabase/seed.sql](supabase/seed.sql) in production. It is for dispo
 - [ ] Service-role key is never exposed to client code
 - [ ] WhatsApp and Stripe secrets are server-only
 - [ ] Demo seed users are not present in production
-- [ ] First Admin uses a strong password
+- [ ] First Super Admin uses a strong password
 - [ ] Treasurer permissions are limited to finance management
-- [ ] Admin is view-only for finance records
+- [ ] Super Admin has full-system access
 - [ ] Member RLS limits contribution history to the logged-in member
 - [ ] Supabase Auth redirect URLs are restricted to approved domains
 - [ ] Vercel deployment logs contain no secret values

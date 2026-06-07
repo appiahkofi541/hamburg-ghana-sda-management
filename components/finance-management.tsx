@@ -195,7 +195,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-        setIsTreasurer((roleRows ?? []).some(({ role }) => role === "treasurer"));
+        setIsTreasurer((roleRows ?? []).some(({ role }) => role === "treasurer" || role === "super_admin"));
       }
 
       const [accountResult, categoryResult, memberResult, logResult, transactionResult] = await Promise.all([
@@ -285,8 +285,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const assets = accounts.filter(({ accountType }) => accountType === "Asset").reduce((sum, item) => sum + item.currentBalance, 0);
   const funds = accounts.filter(({ accountType }) => accountType === "Fund").reduce((sum, item) => sum + item.currentBalance, 0);
   const accessMessage = isTreasurer
-    ? "Treasurer access: you can add, modify, delete, search, export, and generate receipts for all payments."
-    : "Admin read-only access: you can view all payments, view reports, export reports, and generate receipts, but only the Treasurer can add, edit, or delete payments.";
+    ? "Finance management access: you can add, modify, delete, search, export, and generate receipts for all payments."
+    : "Read-only finance access: you can view payments and reports, but only authorized finance managers can add, edit, or delete payments.";
   const filteredTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return transactions.filter((item) => !normalized || Object.values(item).some((value) => String(value).toLowerCase().includes(normalized)));
@@ -567,7 +567,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <PageHeading title="Church Accounting" description="Manage accounts, cash, bank, tithe, offerings, donations, welfare, expenses, and finance reports." />
-        <StatusBadge tone={isTreasurer ? "green" : "slate"}>{isTreasurer ? "Treasurer full access" : "Admin read-only access"}</StatusBadge>
+        <StatusBadge tone={isTreasurer ? "green" : "slate"}>{isTreasurer ? "Finance full access" : "Read-only access"}</StatusBadge>
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-xl border border-slate-100 bg-white p-2 shadow-card">
@@ -671,7 +671,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><div><h2 className="font-bold text-navy">Payment Notification Logs</h2><p className="mt-1 text-xs text-slate-400">Visible to Admin and Treasurer. Retry is Treasurer-only.</p></div><StatusBadge tone="blue">{notificationLogs.length} logs</StatusBadge></CardHeader>
+            <CardHeader><div><h2 className="font-bold text-navy">Payment Notification Logs</h2><p className="mt-1 text-xs text-slate-400">Visible to Super Admin and Treasurer. Retry is available to authorized finance managers.</p></div><StatusBadge tone="blue">{notificationLogs.length} logs</StatusBadge></CardHeader>
             <CardContent className="space-y-3">
               {notificationLogs.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No WhatsApp payment notifications have been logged.</p>}
               {notificationLogs.map((log) => <div className="rounded-lg border border-slate-100 p-3" key={log.id}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><p className="text-sm font-bold text-navy">{log.phoneNumber}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500">{log.message}</p>{log.errorMessage && <p className="mt-1 text-xs text-rose-600">{log.errorMessage}</p>}</div><div className="flex items-center gap-2"><StatusBadge tone={log.status === "Sent" ? "green" : log.status === "Failed" ? "red" : "gold"}>{log.status}</StatusBadge><Button disabled={!isTreasurer || log.status === "Sent"} size="sm" variant="outline" title={isTreasurer ? "Retry notification" : "Access denied: Treasurer only"} onClick={() => retryNotification(log.paymentId)}><RotateCw className="h-4 w-4" /> Retry</Button></div></div></div>)}

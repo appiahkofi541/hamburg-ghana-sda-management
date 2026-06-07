@@ -68,7 +68,7 @@ export function MemberGivingPortal() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      const allAccess = (roleRows ?? []).some(({ role }) => ["admin", "treasurer"].includes(role));
+      const allAccess = (roleRows ?? []).some(({ role }) => ["super_admin", "treasurer"].includes(role));
       setCanViewAll(allAccess);
 
       const [financeResult, onlineResult] = await Promise.all([

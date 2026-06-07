@@ -38,7 +38,7 @@ export default function DashboardPage() {
       let offerings = "Restricted";
       if (user) {
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-        const canViewFinance = (roleRows ?? []).some(({ role }) => ["admin", "treasurer"].includes(role));
+        const canViewFinance = (roleRows ?? []).some(({ role }) => ["super_admin", "treasurer"].includes(role));
         if (canViewFinance) {
           const { data: contributions } = await supabase.from("contributions").select("amount").gte("contribution_date", monthStart);
           offerings = currency.format((contributions ?? []).reduce((sum, { amount }) => sum + Number(amount), 0));
