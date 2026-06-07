@@ -72,7 +72,7 @@ type TransactionForm = {
   notes: string;
   reference: string;
 };
-type MemberOption = { id: string; memberNumber: string; name: string; whatsappPhone: string; phone: string };
+type MemberOption = { id: string; memberNumber: string; name: string; phone: string };
 type PaymentNotificationLog = { id: string; memberId: string; paymentId: string; phoneNumber: string; message: string; status: string; errorMessage: string; sentAt: string; createdAt: string };
 type WhatsAppSettings = { phoneNumberId: string; accessToken: string; defaultTemplateName: string; templateLanguage: string; autoNotificationsEnabled: boolean; accessTokenConfigured: boolean };
 
@@ -179,6 +179,42 @@ function signedAmount(transaction: Transaction) {
   return ["Expenditure", "Expense"].includes(transaction.type) ? -transaction.amount : transaction.amount;
 }
 
+type RawFinanceMember = {
+  id: string;
+  member_id?: string | null;
+  member_number?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
+
+function financeMemberName(member: RawFinanceMember) {
+  return member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.email || "Unnamed Member";
+}
+
+function financeMemberNumber(member: RawFinanceMember) {
+  return member.member_id || member.member_number || member.id.slice(0, 8).toUpperCase();
+}
+
+async function loadActiveFinanceMembers(supabase: NonNullable<ReturnType<typeof createClient>>) {
+  const selects = [
+    "id, member_id, first_name, last_name, full_name, email, phone",
+    "id, member_number, first_name, last_name, full_name, email, phone",
+    "id, full_name, email, phone",
+  ];
+
+  let lastError = "";
+  for (const columns of selects) {
+    const result = await supabase.from("members").select(columns).eq("status", "active").order("full_name");
+    if (!result.error) return { members: (result.data ?? []) as unknown as RawFinanceMember[], error: "" };
+    lastError = result.error.message;
+  }
+
+  return { members: [] as RawFinanceMember[], error: lastError };
+}
+
 export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: FinanceTab }) {
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
@@ -222,7 +258,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       const [accountResult, categoryResult, memberResult, logResult, transactionResult] = await Promise.all([
         supabase.from("finance_accounts").select("*").order("name"),
         supabase.from("finance_categories").select("*").order("name"),
-        supabase.from("members").select("id, member_number, full_name, whatsapp_phone, phone").eq("status", "active").order("full_name"),
+        loadActiveFinanceMembers(supabase),
         supabase.from("whatsapp_payment_notification_logs").select("*").order("created_at", { ascending: false }),
         supabase
           .from("finance_transactions")
@@ -247,8 +283,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         status: labelize(row.status) as AccountStatus,
       })));
       setCategories((categoryResult.data ?? []).map((row) => ({ id: row.id, name: row.name, type: labelize(row.type) as FinanceTransactionType })));
-      if (memberResult.error) setError(`Unable to load active members for finance payments: ${memberResult.error.message}`);
-      setMembers((memberResult.data ?? []).map((row) => ({ id: row.id, memberNumber: row.member_number ?? "", name: row.full_name, whatsappPhone: row.whatsapp_phone ?? "", phone: row.phone ?? "" })));
+      if (memberResult.error) setError(`Unable to load active members for finance payments: ${memberResult.error}`);
+      setMembers(memberResult.members.map((row) => ({ id: row.id, memberNumber: financeMemberNumber(row), name: financeMemberName(row), phone: row.phone ?? "" })));
       const logs = (logResult.data ?? []).map((row) => ({
         id: row.id,
         memberId: row.member_id ?? "",
@@ -819,5 +855,5 @@ function TransactionModal({ accounts, categories, members, form, setForm, editin
   const isTransfer = false;
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })} required><option value="">Select member</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} - {member.memberNumber || member.id.slice(0, 8).toUpperCase()}{member.whatsappPhone || member.phone ? "" : " - no WhatsApp number"}</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceTransactionType, categoryId: categories.find((category) => category.name === event.target.value)?.id ?? "", transferToAccountId: "" })}>{FINANCE_TRANSACTION_TYPES.map((type) => <option key={type} value={type}>{ft(type)}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Reference number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Auto-match contribution type</option>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })} required><option value="">Select member</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceTransactionType, categoryId: categories.find((category) => category.name === event.target.value)?.id ?? "", transferToAccountId: "" })}>{FINANCE_TRANSACTION_TYPES.map((type) => <option key={type} value={type}>{ft(type)}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Reference number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Auto-match contribution type</option>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
 }

@@ -15,7 +15,7 @@ type PaymentRow = {
   amount: number | string;
   reference_number: string | null;
   member_id: string | null;
-  members?: { full_name?: string | null; whatsapp_phone?: string | null; phone?: string | null } | { full_name?: string | null; whatsapp_phone?: string | null; phone?: string | null }[] | null;
+  members?: { full_name?: string | null; phone?: string | null } | { full_name?: string | null; phone?: string | null }[] | null;
 };
 
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
@@ -37,7 +37,7 @@ function relatedMember(payment: PaymentRow) {
 export async function sendPaymentWhatsAppReceipt(admin: SupabaseClient, paymentId: string, options: { retry?: boolean } = {}) {
   const { data: payment, error: paymentError } = await admin
     .from("finance_transactions")
-    .select("id, transaction_date, transaction_type, amount, reference_number, member_id, members(full_name, whatsapp_phone, phone)")
+    .select("id, transaction_date, transaction_type, amount, reference_number, member_id, members(full_name, phone)")
     .eq("id", paymentId)
     .maybeSingle<PaymentRow>();
   if (paymentError) return { ok: false, status: 500, error: paymentError.message };
@@ -46,7 +46,7 @@ export async function sendPaymentWhatsAppReceipt(admin: SupabaseClient, paymentI
 
   const member = relatedMember(payment);
   const memberName = member?.full_name ?? "Member";
-  const phone = normalizeWhatsAppPhone(member?.whatsapp_phone || member?.phone || "");
+  const phone = normalizeWhatsAppPhone(member?.phone || "");
   const paymentType = labelize(payment.transaction_type);
   const amount = currency.format(Number(payment.amount));
   const receipt = payment.reference_number || payment.id.slice(0, 8).toUpperCase();
