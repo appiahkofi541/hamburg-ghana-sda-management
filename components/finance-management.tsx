@@ -15,17 +15,16 @@ import { useT } from "@/components/language-provider";
 import {
   FINANCE_ACCOUNT_TYPES,
   FINANCE_REPORTS,
-  FINANCE_TRANSACTION_TYPES,
   type FinanceAccountType,
   type FinanceReport,
-  type FinanceTransactionType,
 } from "@/lib/types";
 import { positiveNumber, required } from "@/lib/validation";
 import type { TranslationKey } from "@/lib/i18n";
 
-type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "quarterly" | "annual" | "accounts" | "transactions" | "reports" | "cash" | "bank" | "income" | "whatsapp";
+type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "quarterly" | "annual" | "accounts" | "subaccounts" | "transactions" | "reports" | "cash" | "bank" | "income" | "whatsapp";
 type AccountStatus = "Active" | "Inactive";
-type StoredTransactionType = FinanceTransactionType | "Income" | "Expenditure" | "Transfer" | "Expense" | "Other Church Payment";
+type StoredTransactionType = "Income" | "Expenditure" | "Transfer" | "Expense" | "Tithe" | "Offering" | "Thanksgiving" | "Building Fund" | "Mission Offering" | "Welfare Fund" | "Special Donations" | "Donation" | "Other" | "Other Church Payment";
+type FinanceSubAccountGroup = "Income" | "Expenditure";
 type PaymentMethod = "Cash" | "Bank Transfer" | "Card" | "Mobile Money" | "Other";
 type Account = {
   id: string;
@@ -36,7 +35,7 @@ type Account = {
   description: string;
   status: AccountStatus;
 };
-type Category = { id: string; name: string; type: FinanceTransactionType };
+type Category = { id: string; name: string; type: StoredTransactionType; group: FinanceSubAccountGroup; description: string; isActive: boolean };
 type Transaction = {
   id: string;
   date: string;
@@ -60,9 +59,10 @@ type Transaction = {
   enteredBy: string;
 };
 type AccountForm = Omit<Account, "id" | "currentBalance">;
+type CategoryForm = { name: string; group: FinanceSubAccountGroup; description: string; isActive: boolean };
 type TransactionForm = {
   date: string;
-  type: FinanceTransactionType;
+  type: FinanceSubAccountGroup;
   accountId: string;
   memberId: string;
   transferToAccountId: string;
@@ -79,13 +79,14 @@ type WhatsAppSettings = { phoneNumberId: string; accessToken: string; defaultTem
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 const tabs: { id: FinanceTab; label: string }[] = [
   { id: "dashboard", label: "Finance Dashboard" },
-  { id: "add", label: "Add Contribution" },
-  { id: "history", label: "Contribution History" },
+  { id: "add", label: "Add Transaction" },
+  { id: "history", label: "Transaction History" },
   { id: "statement", label: "Member Statement" },
   { id: "monthly", label: "Monthly Report" },
   { id: "quarterly", label: "Quarterly Report" },
   { id: "annual", label: "Annual Report" },
   { id: "accounts", label: "Accounts" },
+  { id: "subaccounts", label: "Sub-Accounts" },
   { id: "transactions", label: "Payments" },
   { id: "reports", label: "Reports" },
   { id: "cash", label: "Cash Account" },
@@ -123,9 +124,10 @@ const defaultAccounts: Account[] = [
   { id: "expenses", name: "Expenses Account", accountType: "Expense", openingBalance: 0, currentBalance: 0, description: "General expenses account.", status: "Active" },
 ];
 const emptyAccount: AccountForm = { name: "", accountType: "Income", openingBalance: 0, description: "", status: "Active" };
+const emptyCategory: CategoryForm = { name: "", group: "Income", description: "", isActive: true };
 const emptyTransaction: TransactionForm = {
   date: new Date().toISOString().slice(0, 10),
-  type: "Tithe",
+  type: "Income",
   accountId: "",
   memberId: "",
   transferToAccountId: "",
@@ -136,7 +138,6 @@ const emptyTransaction: TransactionForm = {
   reference: "",
 };
 const paymentMethods: PaymentMethod[] = ["Cash", "Bank Transfer", "Card", "Mobile Money", "Other"];
-const chartCategories = ["Tithe", "Offering", "Building Fund", "Welfare Fund"] as const;
 
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 
@@ -149,17 +150,12 @@ function enumize(value: string) {
   return value.toLowerCase().replaceAll(" ", "_");
 }
 
-function contributionTypeEnum(value: FinanceTransactionType) {
-  const map: Record<FinanceTransactionType, string> = {
-    Tithe: "tithe",
-    Offering: "offering",
-    Thanksgiving: "donation",
-    "Building Fund": "building_fund",
-    "Welfare Fund": "welfare",
-    "Special Donations": "donation",
-    Other: "other",
-  };
-  return map[value];
+function categoryGroup(value: string): FinanceSubAccountGroup {
+  return ["Expenditure", "Expense"].includes(labelize(value)) ? "Expenditure" : "Income";
+}
+
+function categoryTypeForGroup(group: FinanceSubAccountGroup) {
+  return group === "Expenditure" ? "expense" : "income";
 }
 
 function receiptNumber() {
@@ -251,8 +247,11 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isTreasurer, setIsTreasurer] = useState(false);
+  const [canManageSubAccounts, setCanManageSubAccounts] = useState(false);
   const [accountForm, setAccountForm] = useState<AccountForm | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [categoryForm, setCategoryForm] = useState<CategoryForm | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [transactionForm, setTransactionForm] = useState<TransactionForm | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
@@ -263,13 +262,16 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         setAccounts(defaultAccounts);
         setLoading(false);
         setIsTreasurer(true);
+        setCanManageSubAccounts(true);
         return;
       }
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-        setIsTreasurer((roleRows ?? []).some(({ role }) => role === "treasurer"));
+        const roleNames = (roleRows ?? []).map(({ role }) => role);
+        setIsTreasurer(roleNames.includes("treasurer"));
+        setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
       }
 
       const [accountResult, categoryResult, memberResult, logResult, transactionResult] = await Promise.all([
@@ -299,7 +301,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         description: row.description ?? "",
         status: labelize(row.status) as AccountStatus,
       })));
-      setCategories((categoryResult.data ?? []).map((row) => ({ id: row.id, name: row.name, type: labelize(row.type) as FinanceTransactionType })));
+      setCategories((categoryResult.data ?? []).map((row) => ({ id: row.id, name: row.name, type: labelize(row.type) as StoredTransactionType, group: categoryGroup(row.type), description: row.description ?? "", isActive: Boolean(row.is_active) })));
       if (memberResult.error) setError(`Unable to load active members for finance payments: ${memberResult.error}`);
       setMembers(memberResult.members.map((row) => ({ id: row.id, memberNumber: financeMemberNumber(row), name: financeMemberName(row), phone: row.phone ?? "" })));
       const logs = (logResult.data ?? []).map((row) => ({
@@ -362,8 +364,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const assets = accounts.filter(({ accountType }) => accountType === "Asset").reduce((sum, item) => sum + item.currentBalance, 0);
   const funds = accounts.filter(({ accountType }) => accountType === "Fund").reduce((sum, item) => sum + item.currentBalance, 0);
   const accessMessage = isTreasurer
-    ? "Finance management access: you can add, modify, delete, search, export, and generate receipts for all payments."
-    : "Read-only finance access: you can view payments and reports, but only authorized finance managers can add, edit, or delete payments.";
+    ? "Finance management access: you can add, modify, delete, search, export, generate receipts, and manage finance sub-accounts."
+    : canManageSubAccounts
+      ? "Finance sub-account access: Super Admin can create, edit, activate, and deactivate income and expenditure sub-accounts. Payment records remain Treasurer-managed."
+      : "Read-only finance access: you can view payments and reports, but only authorized finance managers can add, edit, or delete payments.";
   const filteredTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return transactions.filter((item) => !normalized || Object.values(item).some((value) => String(value).toLowerCase().includes(normalized)));
@@ -398,9 +402,13 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const totalTitheThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Tithe").reduce((sum, item) => sum + item.amount, 0);
   const totalOfferingsThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Offering").reduce((sum, item) => sum + item.amount, 0);
   const totalDonationsThisMonth = monthlyTransactions.filter((item) => ["Thanksgiving", "Special Donations", "Other", "Donation"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
-  const categoryTotals = useMemo(() => groupTotals(filteredByYearCategory, contributionLabel), [filteredByYearCategory]);
   const memberTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => item.memberName || "Unassigned"), [filteredByYearCategory]);
+  const chartCategories = categories.filter((category) => category.group === "Income").slice(0, 4).map((category) => category.name);
   const chartTotals = chartCategories.map((category) => ({ category, value: filteredByYearCategory.filter((item) => matchesCategory(item, category)).reduce((sum, item) => sum + item.amount, 0) }));
+  const incomeSubAccountTotals = useMemo(() => groupTotals(filteredByYearCategory.filter((item) => !["Expenditure", "Expense"].includes(item.type)), contributionLabel), [filteredByYearCategory]);
+  const expenditureSubAccountTotals = useMemo(() => groupTotals(filteredByYearCategory.filter((item) => ["Expenditure", "Expense"].includes(item.type)), contributionLabel), [filteredByYearCategory]);
+  const paymentMethodTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => item.paymentMethod || "Unspecified"), [filteredByYearCategory]);
+  const monthTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => monthKey(item.date)), [filteredByYearCategory]);
   const reportRows = activeTab === "monthly" ? monthlyTransactions : activeTab === "quarterly" ? quarterlyTransactions : activeTab === "annual" ? annualTransactions : activeTab === "statement" ? statementRows : filteredByYearCategory;
 
   function openAccount(account?: Account) {
@@ -417,15 +425,11 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   function openTransaction(transaction?: Transaction) {
     if (!isTreasurer) return;
-    const storedType = transaction?.categoryName && FINANCE_TRANSACTION_TYPES.includes(transaction.categoryName as FinanceTransactionType)
-      ? transaction.categoryName as FinanceTransactionType
-      : transaction?.type && FINANCE_TRANSACTION_TYPES.includes(transaction.type as FinanceTransactionType)
-        ? transaction.type as FinanceTransactionType
-        : "Other";
+    const selectedCategory = categories.find((category) => category.id === transaction?.categoryId);
     setEditingTransaction(transaction ?? null);
     setTransactionForm(transaction ? {
       date: transaction.date,
-      type: storedType,
+      type: selectedCategory?.group ?? categoryGroup(transaction.type),
       accountId: transaction.accountId,
       memberId: transaction.memberId,
       transferToAccountId: transaction.transferToAccountId,
@@ -434,14 +438,26 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       paymentMethod: transaction.paymentMethod,
       notes: transaction.notes,
       reference: transaction.reference,
-    } : { ...emptyTransaction, accountId: accounts[0]?.id ?? "" });
+    } : { ...emptyTransaction, accountId: accounts[0]?.id ?? "", categoryId: categories.find((category) => category.isActive && category.group === "Income")?.id ?? "" });
+  }
+
+  function openCategory(category?: Category) {
+    if (!canManageSubAccounts) return;
+    setEditingCategory(category ?? null);
+    setCategoryForm(category ? {
+      name: category.name,
+      group: category.group,
+      description: category.description,
+      isActive: category.isActive,
+    } : emptyCategory);
   }
 
   async function reloadAfterWrite() {
     const supabase = createClient();
     if (!supabase) return;
-    const [{ data: accountRows }, { data: logRows }, { data: transactionRows }] = await Promise.all([
+    const [{ data: accountRows }, { data: categoryRows }, { data: logRows }, { data: transactionRows }] = await Promise.all([
       supabase.from("finance_accounts").select("*").order("name"),
+      supabase.from("finance_categories").select("*").order("name"),
       supabase.from("whatsapp_payment_notification_logs").select("*").order("created_at", { ascending: false }),
       supabase.from("finance_transactions").select("*, account:finance_accounts!finance_transactions_account_id_fkey(name), transfer_account:finance_accounts!finance_transactions_transfer_to_account_id_fkey(name), finance_categories(name), members(full_name), recorded_by_profile:profiles!finance_transactions_recorded_by_fkey(full_name)").order("transaction_date", { ascending: false }),
     ]);
@@ -454,6 +470,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       description: row.description ?? "",
       status: labelize(row.status) as AccountStatus,
     })));
+    setCategories((categoryRows ?? []).map((row) => ({ id: row.id, name: row.name, type: labelize(row.type) as StoredTransactionType, group: categoryGroup(row.type), description: row.description ?? "", isActive: Boolean(row.is_active) })));
     const logs = (logRows ?? []).map((row) => ({
       id: row.id,
       memberId: row.member_id ?? "",
@@ -533,25 +550,59 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     setNotice("Account deleted.");
   }
 
+  async function saveCategory(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!categoryForm || !canManageSubAccounts) return;
+    const validationError = required(categoryForm.name, "Sub-account name");
+    if (validationError) { setError(validationError); return; }
+    const duplicate = categories.find((category) => category.id !== editingCategory?.id && category.name.trim().toLowerCase() === categoryForm.name.trim().toLowerCase());
+    if (duplicate) { setError(`A finance sub-account named "${categoryForm.name.trim()}" already exists.`); return; }
+    setSaving(true);
+    const supabase = createClient();
+    if (supabase) {
+      const payload = {
+        name: categoryForm.name.trim(),
+        type: categoryTypeForGroup(categoryForm.group),
+        description: categoryForm.description || null,
+        is_active: categoryForm.isActive,
+      };
+      const request = editingCategory
+        ? supabase.from("finance_categories").update(payload).eq("id", editingCategory.id)
+        : supabase.from("finance_categories").insert(payload);
+      const { error: saveError } = await request;
+      if (saveError) { setError(saveError.message); setSaving(false); return; }
+      await reloadAfterWrite();
+    } else {
+      const next: Category = { id: editingCategory?.id ?? crypto.randomUUID(), name: categoryForm.name.trim(), type: categoryForm.group, group: categoryForm.group, description: categoryForm.description, isActive: categoryForm.isActive };
+      setCategories((current) => editingCategory ? current.map((item) => item.id === editingCategory.id ? next : item) : [...current, next]);
+    }
+    setNotice(editingCategory ? "Finance sub-account updated." : "Finance sub-account created.");
+    setError("");
+    setSaving(false);
+    setCategoryForm(null);
+    setEditingCategory(null);
+  }
+
   async function saveTransaction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!transactionForm || !isTreasurer) return;
-    const validationError = required(transactionForm.memberId, "Member name") || required(transactionForm.accountId, "Account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
+    const selectedCategory = categories.find((category) => category.id === transactionForm.categoryId);
+    const validationError = required(transactionForm.accountId, "Account") || required(transactionForm.categoryId, "Finance sub-account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
     if (validationError) { setError(validationError); return; }
+    if (!selectedCategory) { setError("Select a valid finance sub-account."); return; }
     setSaving(true);
     const supabase = createClient();
     if (supabase) {
       const { data: { user } } = await supabase.auth.getUser();
       const generatedReference = transactionForm.reference || receiptNumber();
-      const description = transactionForm.notes || `${transactionForm.type} payment`;
-      const selectedCategory = categories.find((category) => category.name === transactionForm.type);
+      const description = transactionForm.notes || `${selectedCategory.name} ${selectedCategory.group.toLowerCase()}`;
       const payload = {
         transaction_date: transactionForm.date,
-        transaction_type: contributionTypeEnum(transactionForm.type),
+        transaction_type: categoryTypeForGroup(selectedCategory.group),
         account_id: transactionForm.accountId,
-        member_id: transactionForm.memberId,
+        member_id: transactionForm.memberId || null,
         transfer_to_account_id: null,
-        category_id: transactionForm.categoryId || selectedCategory?.id || null,
+        category_id: selectedCategory.id,
         amount: Number(transactionForm.amount),
         currency: "EUR",
         description,
@@ -654,8 +705,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     document.text(`${title} | Year: ${selectedYear} | Category: ${selectedCategory}`, 14, 21);
     autoTableModule.default(document, {
       startY: 28,
-      head: [["Date", "Member", "Contribution Type", "Account", "Entered By", "Reference", "Amount"]],
-      body: reportRows.map((item) => [item.date, item.memberName, contributionLabel(item), item.accountName, item.enteredBy, item.reference, currency.format(item.amount)]),
+      head: [["Date", "Member", "Sub-Account", "Account", "Payment Method", "Entered By", "Reference", "Amount"]],
+      body: reportRows.map((item) => [item.date, item.memberName || "-", contributionLabel(item), item.accountName, item.paymentMethod, item.enteredBy, item.reference, currency.format(item.amount)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [8, 41, 76] },
     });
@@ -663,10 +714,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   function exportExcel() {
-    const headers = ["Date", "Member", "Type", "Account", "Category", "Currency", "Entered By", "Reference", "Amount"];
+    const headers = ["Date", "Member", "Group", "Sub-Account", "Account", "Payment Method", "Currency", "Entered By", "Reference", "Amount"];
     const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
     const row = (values: string[]) => `<Row>${values.map((value) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`;
-    const rows = reportRows.map((item) => row([item.date, item.memberName, contributionLabel(item), item.accountName, item.categoryName, item.currency, item.enteredBy, item.reference, String(item.amount)]));
+    const rows = reportRows.map((item) => row([item.date, item.memberName || "-", item.type, contributionLabel(item), item.accountName, item.paymentMethod, item.currency, item.enteredBy, item.reference, String(item.amount)]));
     const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Finance"><Table>${row(headers)}${rows.join("")}</Table></Worksheet></Workbook>`;
     const url = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.ms-excel" }));
     const link = document.createElement("a");
@@ -683,7 +734,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <PageHeading title="Church Accounting" description="Manage accounts, cash, bank, tithe, offerings, donations, welfare, expenses, and finance reports." />
-        <StatusBadge tone={isTreasurer ? "green" : "slate"}>{isTreasurer ? "Finance full access" : "Read-only access"}</StatusBadge>
+        <StatusBadge tone={isTreasurer ? "green" : canManageSubAccounts ? "blue" : "slate"}>{isTreasurer ? "Finance full access" : canManageSubAccounts ? "Sub-account access" : "Read-only access"}</StatusBadge>
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-xl border border-slate-100 bg-white p-2 shadow-card">
@@ -738,10 +789,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card className="p-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="text-xl font-bold text-navy">Add Contribution</h2>
-              <p className="mt-1 text-sm text-slate-500">Record tithe, offerings, thanksgiving, building fund, welfare fund, special donations, and other church contributions.</p>
+              <h2 className="text-xl font-bold text-navy">Add Income or Expenditure</h2>
+              <p className="mt-1 text-sm text-slate-500">Record member contributions, other income, and expenditure against dynamic finance sub-accounts.</p>
             </div>
-            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a contribution" : "Access denied: Treasurer only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
+            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a transaction" : "Access denied: Treasurer only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Transaction</Button>
           </div>
           {!isTreasurer && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Access denied: only the Treasurer can create, edit, or delete contribution records.</p>}
         </Card>
@@ -751,8 +802,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="font-bold text-navy">{activeTab === "history" ? "Contribution History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : activeTab === "quarterly" ? "Quarterly Report" : "Annual Report"}</h2>
-              <p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church giving records and report summaries.</p>
+              <h2 className="font-bold text-navy">{activeTab === "history" ? "Transaction History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : activeTab === "quarterly" ? "Quarterly Report" : "Annual Report"}</h2>
+              <p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church income, expenditure, and giving report summaries.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {activeTab === "statement" && <select className={fieldClass} value={statementMemberId} onChange={(event) => setStatementMemberId(event.target.value)}><option value="">All members</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name} ({member.memberNumber})</option>)}</select>}
@@ -767,8 +818,20 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label="Total offerings this month" value={currency.format(totalOfferingsThisMonth)} />
             <ReportCard label="Total donations this month" value={currency.format(totalDonationsThisMonth)} />
           </div>
-          {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns categoryTotals={categoryTotals} memberTotals={memberTotals} />}
+          {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns incomeSubAccountTotals={incomeSubAccountTotals} expenditureSubAccountTotals={expenditureSubAccountTotals} memberTotals={memberTotals} monthTotals={monthTotals} paymentMethodTotals={paymentMethodTotals} />}
           <TransactionTable rows={reportRows} isTreasurer={isTreasurer && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
+        </Card>
+      )}
+
+      {activeTab === "subaccounts" && (
+        <Card>
+          <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 md:flex-row md:items-center">
+            <div><h2 className="font-bold text-navy">Income and Expenditure Sub-Accounts</h2><p className="mt-1 text-xs text-slate-400">Create future giving and expense categories without changing code.</p></div>
+            <Button disabled={!canManageSubAccounts} title={canManageSubAccounts ? "Add a finance sub-account" : "Access denied: Super Admin or Treasurer only"} onClick={() => openCategory()}><Plus className="h-4 w-4" /> Add Sub-Account</Button>
+          </div>
+          <div className="grid gap-4 p-5 lg:grid-cols-2">
+            {(["Income", "Expenditure"] as FinanceSubAccountGroup[]).map((group) => <div className="rounded-xl border border-slate-100 p-4" key={group}><div className="mb-3 flex items-center justify-between"><h3 className="font-bold text-navy">{group}</h3><StatusBadge tone={group === "Income" ? "green" : "red"}>{categories.filter((category) => category.group === group).length} sub-accounts</StatusBadge></div><div className="space-y-3">{categories.filter((category) => category.group === group).map((category) => <div className="rounded-lg border border-slate-100 p-3" key={category.id}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start"><div><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-navy">{category.name}</p><StatusBadge tone={category.isActive ? "green" : "slate"}>{category.isActive ? "Active" : "Inactive"}</StatusBadge></div><p className="mt-1 text-xs text-slate-500">{category.description || "No description yet."}</p></div><div className="flex gap-1"><Button disabled={!canManageSubAccounts} title={canManageSubAccounts ? "Edit sub-account" : "Access denied"} variant="ghost" size="sm" onClick={() => openCategory(category)}><Pencil className="h-4 w-4" /> Edit</Button></div></div></div>)}{categories.filter((category) => category.group === group).length === 0 && <p className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No {group.toLowerCase()} sub-accounts yet.</p>}</div></div>)}
+          </div>
         </Card>
       )}
 
@@ -844,6 +907,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       )}
 
       {accountForm && <AccountModal form={accountForm} setForm={setAccountForm} editing={editingAccount} saving={saving} onClose={() => setAccountForm(null)} onSubmit={saveAccount} />}
+      {categoryForm && <CategoryModal form={categoryForm} setForm={setCategoryForm} editing={editingCategory} saving={saving} onClose={() => setCategoryForm(null)} onSubmit={saveCategory} />}
       {transactionForm && <TransactionModal accounts={accounts} categories={categories} members={members} form={transactionForm} setForm={setTransactionForm} editing={editingTransaction} saving={saving} onClose={() => setTransactionForm(null)} onSubmit={saveTransaction} />}
     </div>
   );
@@ -872,8 +936,8 @@ function groupTotals(rows: Transaction[], getLabel: (transaction: Transaction) =
   }, new Map()).entries()].sort((left, right) => right[1] - left[1]).slice(0, 8);
 }
 
-function ReportBreakdowns({ categoryTotals, memberTotals }: { categoryTotals: [string, number][]; memberTotals: [string, number][] }) {
-  return <div className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-2"><Breakdown title="Giving by category" rows={categoryTotals} /><Breakdown title="Giving by member" rows={memberTotals} /></div>;
+function ReportBreakdowns({ incomeSubAccountTotals, expenditureSubAccountTotals, memberTotals, monthTotals, paymentMethodTotals }: { incomeSubAccountTotals: [string, number][]; expenditureSubAccountTotals: [string, number][]; memberTotals: [string, number][]; monthTotals: [string, number][]; paymentMethodTotals: [string, number][] }) {
+  return <div className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-2"><Breakdown title="Income by sub-account" rows={incomeSubAccountTotals} /><Breakdown title="Expenditure by sub-account" rows={expenditureSubAccountTotals} /><Breakdown title="Giving by member" rows={memberTotals} /><Breakdown title="Totals by month" rows={monthTotals} /><Breakdown title="Totals by payment method" rows={paymentMethodTotals} /></div>;
 }
 
 function Breakdown({ title, rows }: { title: string; rows: [string, number][] }) {
@@ -886,7 +950,7 @@ function TransactionTable({ rows, isTreasurer, onEdit, onDelete }: { rows: Trans
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[1080px] text-left text-sm">
-        <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member Name", "Contribution Type", "Method", "Account", "Entered By", "Reference", "Amount", "WhatsApp", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
+        <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member Name", "Sub-Account", "Method", "Account", "Entered By", "Reference", "Amount", "WhatsApp", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
         <tbody>
           {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/offerings/receipt/${item.id}`}><Button variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button disabled={!isTreasurer} title={isTreasurer ? "Edit payment" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!isTreasurer} title={isTreasurer ? "Delete payment" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
           {rows.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={10}>No payments found.</td></tr>}
@@ -902,9 +966,15 @@ function AccountModal({ form, setForm, editing, saving, onClose, onSubmit }: { f
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="w-full max-w-2xl rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="flex items-center justify-between border-b border-slate-100 p-5"><h2 className="font-bold text-navy">{editing ? "Edit Account" : "Add New Account"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close account form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Account Name<input className={fieldClass} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Account Type<select className={fieldClass} value={form.accountType} onChange={(event) => setForm({ ...form, accountType: event.target.value as FinanceAccountType })}>{FINANCE_ACCOUNT_TYPES.map((type) => <option key={type} value={type}>{ft(type)}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Opening Balance<input className={fieldClass} min="0" step="0.01" type="number" value={form.openingBalance} onChange={(event) => setForm({ ...form, openingBalance: Number(event.target.value) })} /></label><label className="text-sm font-semibold text-slate-700">Status<select className={fieldClass} value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as AccountStatus })}><option>Active</option><option>Inactive</option></select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="flex justify-end gap-2 border-t border-slate-100 p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : t("button.saveAccount")}</Button></div></form></div>;
 }
 
+function CategoryModal({ form, setForm, editing, saving, onClose, onSubmit }: { form: CategoryForm; setForm: (form: CategoryForm) => void; editing: Category | null; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+  const t = useT();
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="w-full max-w-2xl rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="font-bold text-navy">{editing ? "Edit Sub-Account" : "Add Sub-Account"}</h2><p className="mt-1 text-xs text-slate-400">Dynamic income and expenditure categories for Hamburg Ghana SDA Church.</p></div><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close sub-account form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Sub-Account Name<input className={fieldClass} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.group} onChange={(event) => setForm({ ...form, group: event.target.value as FinanceSubAccountGroup })}><option>Income</option><option>Expenditure</option></select></label><label className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-semibold text-slate-700"><input className="accent-churchblue" type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active sub-account</label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="flex justify-end gap-2 border-t border-slate-100 p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save Sub-Account"}</Button></div></form></div>;
+}
+
 function TransactionModal({ accounts, categories, members, form, setForm, editing, saving, onClose, onSubmit }: { accounts: Account[]; categories: Category[]; members: MemberOption[]; form: TransactionForm; setForm: (form: TransactionForm) => void; editing: Transaction | null; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
   const isTransfer = false;
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })} required><option value="">Select member</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceTransactionType, categoryId: categories.find((category) => category.name === event.target.value)?.id ?? "", transferToAccountId: "" })}>{FINANCE_TRANSACTION_TYPES.map((type) => <option key={type} value={type}>{ft(type)}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Reference number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Auto-match contribution type</option>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
+  const availableCategories = categories.filter((category) => category.group === form.type && (category.isActive || category.id === form.categoryId));
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Transaction" : "Add Transaction"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceSubAccountGroup, categoryId: "", memberId: event.target.value === "Expenditure" ? "" : form.memberId })}><option>Income</option><option>Expenditure</option></select></label><label className="text-sm font-semibold text-slate-700">Finance Sub-Account<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })} required><option value="">Select sub-account</option>{availableCategories.map((category) => <option disabled={!category.isActive && category.id !== form.categoryId} value={category.id} key={category.id}>{category.name}{category.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })}><option value="">{form.type === "Income" ? "Optional. Select member for contribution income" : "Optional for expenditure"}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Reference number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Transaction"}</Button></div></form></div>;
 }
