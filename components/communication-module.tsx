@@ -55,6 +55,19 @@ function channelTone(channel: Channel) {
   return "slate";
 }
 
+function fromAnnouncementRow(row: Record<string, unknown>): Announcement {
+  return {
+    id: asText(row.id),
+    title: asText(row.title),
+    body: asText(row.body),
+    audience: asText(row.target_audience) as Audience,
+    department: asText(row.department_name),
+    status: label(asText(row.status)),
+    scheduledAt: asText(row.scheduled_at).slice(0, 16),
+    expiresAt: asText(row.expires_at).slice(0, 10),
+  };
+}
+
 export function CommunicationModule() {
   const [activeTab, setActiveTab] = useState<Tab>("announcements");
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -140,16 +153,7 @@ export function CommunicationModule() {
         department: department?.name ?? "",
       };
     }));
-    setAnnouncements((announcementResult.data ?? []).map((row) => ({
-      id: row.id,
-      title: row.title,
-      body: row.body,
-      audience: row.target_audience,
-      department: row.department_name ?? "",
-      status: label(row.status),
-      scheduledAt: row.scheduled_at?.slice(0, 16) ?? "",
-      expiresAt: row.expires_at?.slice(0, 10) ?? "",
-    })));
+    setAnnouncements((announcementResult.data ?? []).map((row) => fromAnnouncementRow(row as Record<string, unknown>)));
     setCampaigns((campaignResult.data ?? []).map((row) => ({
       id: row.id,
       title: row.title,
@@ -199,19 +203,28 @@ export function CommunicationModule() {
     if (!canManageAnnouncements) return setError("Access denied. Only Super Admin, Pastor, Elder, or Secretary can manage announcements.");
     setSaving(true);
     setError("");
+    setNotice("");
     const supabase = createClient();
     if (supabase) {
-      const { error: saveError } = await supabase.from("communication_announcements").insert({
-        title: announcementForm.title,
-        body: announcementForm.body,
-        target_audience: announcementForm.audience,
-        department_name: announcementForm.department || null,
-        status: announcementForm.scheduledAt ? "scheduled" : "published",
-        scheduled_at: announcementForm.scheduledAt || null,
-        expires_at: announcementForm.expiresAt || null,
+      const response = await fetch("/api/communications/announcements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: announcementForm.title,
+          body: announcementForm.body,
+          targetAudience: announcementForm.audience,
+          departmentName: announcementForm.department,
+          scheduledAt: announcementForm.scheduledAt,
+          expiresAt: announcementForm.expiresAt,
+        }),
       });
-      if (saveError) setError(saveError.message);
-      else setNotice("Announcement saved.");
+      const result = await response.json();
+      if (!response.ok) {
+        setError(result.error ?? "Announcement was not saved.");
+        setSaving(false);
+        return;
+      }
+      setNotice(result.message ?? "Announcement saved.");
     } else {
       const next = [{ ...announcementForm, id: crypto.randomUUID(), status: announcementForm.scheduledAt ? "Scheduled" : "Published" }, ...announcements];
       setAnnouncements(next);
@@ -329,7 +342,7 @@ export function CommunicationModule() {
         {activeTab === "preferences" && <PreferencesTab preferences={preferences} updatePreference={updatePreference} />}
       </Card>
 
-      {showAnnouncement && <AnnouncementModal form={announcementForm} setForm={setAnnouncementForm} saving={saving} onClose={() => setShowAnnouncement(false)} onSubmit={saveAnnouncement} />}
+      {showAnnouncement && <AnnouncementModal error={error} form={announcementForm} setForm={setAnnouncementForm} saving={saving} onClose={() => setShowAnnouncement(false)} onSubmit={saveAnnouncement} />}
       {showCampaign && <CampaignModal form={campaignForm} setForm={setCampaignForm} saving={saving} members={members} templates={templates} onClose={() => setShowCampaign(false)} onSubmit={saveCampaign} />}
       {showTemplate && <TemplateModal form={templateForm} setForm={setTemplateForm} saving={saving} onClose={() => setShowTemplate(false)} onSubmit={saveTemplate} />}
     </div>
@@ -368,8 +381,8 @@ function Empty({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm font-semibold text-slate-500">{text}</div>;
 }
 
-function AnnouncementModal({ form, setForm, saving, onClose, onSubmit }: { form: typeof emptyAnnouncement; setForm: (form: typeof emptyAnnouncement) => void; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Create Announcement" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><Select label="Target Audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value as Audience })} options={["all_members", "department", "leaders"]} /><Input label="Department" value={form.department} onChange={(value) => setForm({ ...form, department: value })} /><Input label="Schedule Date" type="datetime-local" value={form.scheduledAt} onChange={(value) => setForm({ ...form, scheduledAt: value })} /><Input label="Expiry Date" type="date" value={form.expiresAt} onChange={(value) => setForm({ ...form, expiresAt: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Body<textarea className={textareaClass} required value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Announcement" onClose={onClose} /></form></Modal>;
+function AnnouncementModal({ error, form, setForm, saving, onClose, onSubmit }: { error: string; form: typeof emptyAnnouncement; setForm: (form: typeof emptyAnnouncement) => void; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+  return <Modal title="Create Announcement" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2">{error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 sm:col-span-2">{error}</p>}<Input label="Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><Select label="Target Audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value as Audience })} options={["all_members", "department", "leaders"]} /><Input label="Department" value={form.department} onChange={(value) => setForm({ ...form, department: value })} /><Input label="Schedule Date" type="datetime-local" value={form.scheduledAt} onChange={(value) => setForm({ ...form, scheduledAt: value })} /><Input label="Expiry Date" type="date" value={form.expiresAt} onChange={(value) => setForm({ ...form, expiresAt: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Body<textarea className={textareaClass} required value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Announcement" onClose={onClose} /></form></Modal>;
 }
 
 function CampaignModal({ form, setForm, saving, members, templates, onClose, onSubmit }: { form: typeof emptyCampaign; setForm: (form: typeof emptyCampaign) => void; saving: boolean; members: Member[]; templates: Template[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
