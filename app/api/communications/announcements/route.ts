@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeRoles } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const announcementManagers = new Set(["super_admin", "pastor", "elder", "secretary"]);
 
@@ -55,7 +56,8 @@ export async function POST(request: Request) {
   }
 
   const status = scheduledAt && new Date(scheduledAt).getTime() > Date.now() ? "scheduled" : "published";
-  const { data, error } = await supabase.from("communication_announcements").insert({
+  const writer = createAdminClient() ?? supabase;
+  const { data, error } = await writer.from("communication_announcements").insert({
     title,
     body: message,
     target_audience: targetAudience,
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
     status,
     scheduled_at: scheduledAt,
     expires_at: expiresAt,
+    created_by: user.id,
   }).select("*").single();
 
   if (error) {

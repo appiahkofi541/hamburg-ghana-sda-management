@@ -206,25 +206,32 @@ export function CommunicationModule() {
     setNotice("");
     const supabase = createClient();
     if (supabase) {
-      const response = await fetch("/api/communications/announcements", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: announcementForm.title,
-          body: announcementForm.body,
-          targetAudience: announcementForm.audience,
-          departmentName: announcementForm.department,
-          scheduledAt: announcementForm.scheduledAt,
-          expiresAt: announcementForm.expiresAt,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        setError(result.error ?? "Announcement was not saved.");
+      try {
+        const response = await fetch("/api/communications/announcements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: announcementForm.title,
+            body: announcementForm.body,
+            targetAudience: announcementForm.audience,
+            departmentName: announcementForm.department,
+            scheduledAt: announcementForm.scheduledAt,
+            expiresAt: announcementForm.expiresAt,
+          }),
+        });
+        const text = await response.text();
+        const result = text ? JSON.parse(text) : {};
+        if (!response.ok) {
+          setError(result.error ?? `Announcement was not saved. Server returned ${response.status}.`);
+          setSaving(false);
+          return;
+        }
+        setNotice(result.message ?? "Announcement saved.");
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : "Announcement was not saved because the request failed.");
         setSaving(false);
         return;
       }
-      setNotice(result.message ?? "Announcement saved.");
     } else {
       const next = [{ ...announcementForm, id: crypto.randomUUID(), status: announcementForm.scheduledAt ? "Scheduled" : "Published" }, ...announcements];
       setAnnouncements(next);
