@@ -49,8 +49,15 @@ export default function DashboardPage() {
         if (member) {
           setMemberName(member.full_name ?? "Church Member");
           setMemberPhoto(member.photo_thumbnail_url ?? member.photo_url ?? "");
+          const now = new Date().toISOString();
           const [{ count: announcementCount }, { data: reads }, { data: givingRows }, { count: prayerCount }, { count: registrationCount }] = await Promise.all([
-            supabase.from("communication_announcements").select("id", { count: "exact", head: true }).in("status", ["published", "scheduled"]),
+            supabase
+              .from("communication_announcements")
+              .select("id", { count: "exact", head: true })
+              .eq("status", "published")
+              .eq("target_audience", "all_members")
+              .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+              .or(`expires_at.is.null,expires_at.gte.${now}`),
             supabase.from("member_announcement_reads").select("announcement_id").eq("member_id", member.id),
             supabase.from("finance_transactions").select("amount").eq("member_id", member.id),
             supabase.from("prayer_requests").select("id", { count: "exact", head: true }).eq("submitted_by", user.id),

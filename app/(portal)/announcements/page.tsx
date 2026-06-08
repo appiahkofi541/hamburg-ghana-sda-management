@@ -43,8 +43,16 @@ export default function AnnouncementsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: member } = user ? await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle() : { data: null };
       if (member?.id) setMemberId(member.id);
+      const now = new Date().toISOString();
       const [{ data: rows, error: announcementError }, { data: reads }] = await Promise.all([
-        supabase.from("communication_announcements").select("*").in("status", ["published", "scheduled"]).order("scheduled_at", { ascending: false }),
+        supabase
+          .from("communication_announcements")
+          .select("*")
+          .eq("status", "published")
+          .eq("target_audience", "all_members")
+          .or(`scheduled_at.is.null,scheduled_at.lte.${now}`)
+          .or(`expires_at.is.null,expires_at.gte.${now}`)
+          .order("created_at", { ascending: false }),
         member?.id ? supabase.from("member_announcement_reads").select("announcement_id").eq("member_id", member.id) : Promise.resolve({ data: [] }),
       ]);
 
