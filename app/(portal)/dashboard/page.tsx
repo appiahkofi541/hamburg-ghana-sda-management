@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Bell, CalendarDays, CircleDollarSign, ClipboardCheck, HeartHandshake, IdCard, Library, Megaphone, ReceiptText, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { events } from "@/lib/data";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +20,7 @@ export default function DashboardPage() {
   const [totals, setTotals] = useState(previewTotals);
   const [memberPhoto, setMemberPhoto] = useState("");
   const [memberName, setMemberName] = useState("Church Member");
+  const [memberStats, setMemberStats] = useState({ unreadAnnouncements: 0, givingTotal: "€0", prayerRequests: 0, eventRegistrations: 0 });
 
   useEffect(() => {
     async function loadTotals() {
@@ -43,10 +45,23 @@ export default function DashboardPage() {
           const { data: contributions } = await supabase.from("finance_transactions").select("amount").gte("transaction_date", monthStart);
           offerings = currency.format((contributions ?? []).reduce((sum, { amount }) => sum + Number(amount), 0));
         }
-        const { data: member } = await supabase.from("members").select("full_name, photo_thumbnail_url, photo_url").eq("profile_id", user.id).maybeSingle();
+        const { data: member } = await supabase.from("members").select("id, full_name, photo_thumbnail_url, photo_url").eq("profile_id", user.id).maybeSingle();
         if (member) {
           setMemberName(member.full_name ?? "Church Member");
           setMemberPhoto(member.photo_thumbnail_url ?? member.photo_url ?? "");
+          const [{ count: announcementCount }, { data: reads }, { data: givingRows }, { count: prayerCount }, { count: registrationCount }] = await Promise.all([
+            supabase.from("communication_announcements").select("id", { count: "exact", head: true }).in("status", ["published", "scheduled"]),
+            supabase.from("member_announcement_reads").select("announcement_id").eq("member_id", member.id),
+            supabase.from("finance_transactions").select("amount").eq("member_id", member.id),
+            supabase.from("prayer_requests").select("id", { count: "exact", head: true }).eq("submitted_by", user.id),
+            supabase.from("event_registrations").select("id", { count: "exact", head: true }).eq("member_id", member.id),
+          ]);
+          setMemberStats({
+            unreadAnnouncements: Math.max((announcementCount ?? 0) - (reads?.length ?? 0), 0),
+            givingTotal: currency.format((givingRows ?? []).reduce((sum, row) => sum + Number(row.amount), 0)),
+            prayerRequests: prayerCount ?? 0,
+            eventRegistrations: registrationCount ?? 0,
+          });
         }
       }
 
@@ -75,6 +90,12 @@ export default function DashboardPage() {
     [t("nav.announcements"), "/announcements", Megaphone],
     [t("nav.sermons"), "/sermons", Library],
   ] as const;
+  const selfServiceWidgets: { label: string; value: string; href: string; icon: LucideIcon }[] = [
+    { label: "Unread Announcements", value: String(memberStats.unreadAnnouncements), href: "/announcements", icon: Megaphone },
+    { label: "My Giving Total", value: memberStats.givingTotal, href: "/my-contributions", icon: ReceiptText },
+    { label: "Prayer Requests", value: String(memberStats.prayerRequests), href: "/prayer-requests", icon: HeartHandshake },
+    { label: "Event Registrations", value: String(memberStats.eventRegistrations), href: "/events", icon: CalendarDays },
+  ];
 
   return (
     <div className="space-y-6">
@@ -112,6 +133,16 @@ export default function DashboardPage() {
           {memberDashboard.map(([label, href, Icon]) => <Link className="rounded-lg border border-slate-100 p-4 transition hover:border-churchblue/30 hover:shadow-card" href={href} key={href}><Icon className="h-5 w-5 text-churchblue" /><p className="mt-3 text-sm font-bold text-navy">{label}</p></Link>)}
         </div>
       </Card>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {selfServiceWidgets.map(({ label, value, href, icon: Icon }) => (
+          <Link href={href} key={label}>
+            <Card className="flex items-center justify-between p-5 transition hover:border-churchblue/30 hover:shadow-lg">
+              <div><p className="text-sm font-semibold text-navy">{label}</p><p className="mt-1 text-xl font-bold text-churchblue">{value}</p></div>
+              <Icon className="h-6 w-6 text-churchblue" />
+            </Card>
+          </Link>
+        ))}
+      </section>
       <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
         <Card>
           <CardHeader>

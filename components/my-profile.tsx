@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Mail, MapPin, Phone } from "lucide-react";
+import { KeyRound, Mail, MapPin, Pencil, Phone, Save, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
@@ -38,7 +38,11 @@ function titleCase(value: string | null | undefined) {
 
 export function MyProfile() {
   const [profile, setProfile] = useState<MemberProfileRow | null>();
+  const [form, setForm] = useState<Partial<MemberProfileRow>>({});
+  const [editing, setEditing] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -49,6 +53,7 @@ export function MyProfile() {
       if (!user) return;
       const { data } = await supabase.from("members").select("*").eq("profile_id", user.id).maybeSingle();
       setProfile(data);
+      setForm(data ?? {});
     }
     load();
   }, []);
@@ -70,12 +75,48 @@ export function MyProfile() {
     setSavingPhoto(false);
   }
 
+  function startEdit() {
+    if (!profile) return;
+    setForm(profile);
+    setEditing(true);
+  }
+
+  async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile?.id) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    setSaving(true);
+    setError("");
+    const payload = {
+      first_name: form.first_name || null,
+      last_name: form.last_name || null,
+      full_name: `${form.first_name ?? ""} ${form.last_name ?? ""}`.trim() || profile.full_name,
+      phone: form.phone || null,
+      whatsapp_phone: form.whatsapp_phone || null,
+      email: form.email || null,
+      address_line: form.address_line || null,
+      marital_status: form.marital_status || null,
+      occupation: form.occupation || null,
+    };
+    const { data, error: saveError } = await supabase.from("members").update(payload).eq("id", profile.id).select("*").single();
+    if (saveError) setError(saveError.message);
+    else {
+      setProfile(data);
+      setForm(data);
+      setEditing(false);
+      setNotice("Profile updated successfully.");
+    }
+    setSaving(false);
+  }
+
   if (profile === undefined) return <p className="p-8 text-center text-sm text-slate-500">Loading your profile...</p>;
   if (!profile) return <Card className="p-8 text-center"><p className="font-bold text-navy">No member profile is linked to this login yet.</p><p className="mt-2 text-sm text-slate-500">Please contact the church secretary to connect your account to your membership record.</p><Link href="/dashboard"><Button className="mt-4">Back to Dashboard</Button></Link></Card>;
 
   return (
     <div className="space-y-6">
       <PageHeading title="My Profile" description="Your Hamburg Ghana SDA Church membership record." />
+      {notice && <p className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue">{notice}</p>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
       <Card className="p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -95,9 +136,31 @@ export function MyProfile() {
               <span className="flex items-center gap-1"><Phone className="h-4 w-4" />{profile.phone || "No phone"}</span>
               <span className="flex items-center gap-1"><MapPin className="h-4 w-4" />{profile.address_line || "No address"}</span>
             </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="outline" onClick={startEdit}><Pencil className="h-4 w-4" /> Edit Profile</Button>
+              <Link href="/change-password"><Button variant="outline"><KeyRound className="h-4 w-4" /> Change Password</Button></Link>
+            </div>
           </div>
         </div>
       </Card>
+      {editing && <Card className="p-6">
+        <form className="space-y-4" onSubmit={saveProfile}>
+          <div className="flex items-center justify-between gap-3"><div><h2 className="font-bold text-navy">Edit My Profile</h2><p className="mt-1 text-sm text-slate-500">Members can update their own contact and basic profile information.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Cancel edit" onClick={() => setEditing(false)}><X className="h-5 w-5" /></Button></div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              ["First Name", "first_name"],
+              ["Last Name", "last_name"],
+              ["Phone", "phone"],
+              ["WhatsApp", "whatsapp_phone"],
+              ["Email", "email"],
+              ["Address", "address_line"],
+              ["Marital Status", "marital_status"],
+              ["Occupation", "occupation"],
+            ].map(([label, key]) => <label className="text-sm font-semibold text-slate-700" key={key}>{label}<input className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-churchblue" value={String(form[key as keyof MemberProfileRow] ?? "")} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></label>)}
+          </div>
+          <Button disabled={saving} type="submit"><Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Profile"}</Button>
+        </form>
+      </Card>}
       <Card className="grid gap-5 p-6 sm:grid-cols-2 lg:grid-cols-3">
         {[
           ["First Name", profile.first_name || "Not set"],
