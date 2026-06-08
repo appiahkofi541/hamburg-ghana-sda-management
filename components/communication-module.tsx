@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
+import { normalizeRoles, type AppRole } from "@/lib/auth";
 
 type Channel = "email" | "whatsapp" | "sms" | "push";
 type Audience = "all_members" | "department" | "leaders" | "individual";
@@ -30,8 +31,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "preferences", label: "Member Preferences" },
 ];
 
-const allowedManagers = ["super_admin", "pastor", "secretary"];
-const announcementManagers = ["super_admin", "pastor", "elder", "secretary"];
+const communicationManagers: AppRole[] = ["super_admin", "pastor", "elder", "secretary"];
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 const textareaClass = "mt-1.5 min-h-28 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 const storageKey = "hamburg-ghana-sda-communications";
@@ -63,7 +63,7 @@ export function CommunicationModule() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [preferences, setPreferences] = useState<Preference[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
-  const [roles, setRoles] = useState<string[]>([]);
+  const [roles, setRoles] = useState<AppRole[]>([]);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -76,8 +76,8 @@ export function CommunicationModule() {
   const [campaignForm, setCampaignForm] = useState(emptyCampaign);
   const [templateForm, setTemplateForm] = useState(emptyTemplate);
 
-  const canManageAll = roles.some((role) => allowedManagers.includes(role));
-  const canManageAnnouncements = roles.some((role) => announcementManagers.includes(role));
+  const canManageAll = roles.some((role) => communicationManagers.includes(role));
+  const canManageAnnouncements = canManageAll;
   const filteredDeliveries = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return deliveries.filter((delivery) => !needle || [delivery.title, delivery.recipient, delivery.channel, delivery.status].some((value) => value.toLowerCase().includes(needle)));
@@ -112,7 +112,7 @@ export function CommunicationModule() {
       return;
     }
     const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-    setRoles((roleRows ?? []).map(({ role }) => String(role)));
+    setRoles(normalizeRoles((roleRows ?? []).map(({ role }) => role)));
 
     const [memberResult, announcementResult, campaignResult, deliveryResult, templateResult, preferenceResult] = await Promise.all([
       supabase.from("members").select("id, member_id, full_name, first_name, last_name, email, phone, department:departments(name)").order("full_name"),
@@ -226,7 +226,7 @@ export function CommunicationModule() {
 
   async function saveCampaign(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canManageAll) return setError("Access denied. Members can receive notifications only.");
+    if (!canManageAll) return setError("Access denied. Only Super Admin, Pastor, Elder, or Secretary can send notifications.");
     setSaving(true);
     setError("");
     const supabase = createClient();
@@ -261,7 +261,7 @@ export function CommunicationModule() {
 
   async function saveTemplate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canManageAll) return setError("Access denied. Only communication managers can save templates.");
+    if (!canManageAll) return setError("Access denied. Only Super Admin, Pastor, Elder, or Secretary can save templates.");
     setSaving(true);
     const supabase = createClient();
     if (supabase) {

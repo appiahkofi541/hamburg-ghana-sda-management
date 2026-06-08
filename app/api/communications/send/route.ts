@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { toAppRole } from "@/lib/auth";
 
-const managerRoles = new Set(["super_admin", "pastor", "secretary"]);
+const managerRoles = new Set(["super_admin", "pastor", "elder", "secretary"]);
 
 function providerConfigured(channel: string) {
   if (channel === "email") return Boolean(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     const normalized = toAppRole(role);
     return normalized ? managerRoles.has(normalized) : false;
   });
-  if (!canSend) return NextResponse.json({ error: "Access denied. Only Super Admin, Pastor, or Secretary can send notifications." }, { status: 403 });
+  if (!canSend) return NextResponse.json({ error: "Access denied. Only Super Admin, Pastor, Elder, or Secretary can send notifications." }, { status: 403 });
 
   const body = await request.json() as { campaignId?: string };
   if (!body.campaignId) return NextResponse.json({ error: "Campaign ID is required." }, { status: 400 });
