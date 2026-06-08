@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck,
+  Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
   BadgeEuro, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -22,6 +22,7 @@ const nav = [
   { labelKey: "nav.members", href: "/members", icon: Users },
   { labelKey: "nav.departments", href: "/departments", icon: ShieldCheck },
   { labelKey: "nav.attendance", href: "/attendance", icon: ClipboardCheck },
+  { labelKey: "nav.operations", href: "/operations", icon: ClipboardList },
   { labelKey: "nav.finance", href: "/offerings", icon: CircleDollarSign },
   { labelKey: "nav.onlineGiving", href: "/giving", icon: BadgeEuro },
   { labelKey: "nav.givingHistory", href: "/giving-history", icon: ReceiptText },
