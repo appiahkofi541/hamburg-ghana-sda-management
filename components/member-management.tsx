@@ -7,7 +7,6 @@ import {
   UserRoundPlus, Users, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { SDA_DEPARTMENTS } from "@/lib/types";
 import { required, validEmail } from "@/lib/validation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,6 +32,7 @@ type MemberRecord = {
   baptismStatus: boolean;
   maritalStatus: string;
   occupation: string;
+  departmentId: string;
   department: string;
   membershipStatus: MemberStatus;
   photoUrl: string;
@@ -53,6 +53,7 @@ const emptyMember: MemberRecord = {
   baptismDate: "", baptismStatus: false,
   maritalStatus: "",
   occupation: "",
+  departmentId: "",
   department: "",
   membershipStatus: "Active",
   photoUrl: "",
@@ -60,15 +61,16 @@ const emptyMember: MemberRecord = {
 };
 
 const seedMembers: MemberRecord[] = [
-  { id: "1", memberId: "HG-001", firstName: "Kwame", lastName: "Mensah", gender: "Male", dateOfBirth: "1982-04-16", phone: "+49 176 482 0193", whatsappPhone: "491764820193", email: "kwame.mensah@email.com", address: "Hamburg, Germany", baptismDate: "2001-08-11", baptismStatus: true, maritalStatus: "Married", occupation: "Engineer", department: "Deacons", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
-  { id: "2", memberId: "HG-002", firstName: "Akosua", lastName: "Boateng", gender: "Female", dateOfBirth: "1990-09-03", phone: "+49 157 594 2281", whatsappPhone: "491575942281", email: "akosua.boateng@email.com", address: "Hamburg, Germany", baptismDate: "2007-05-19", baptismStatus: true, maritalStatus: "Single", occupation: "Teacher", department: "Choir", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
-  { id: "3", memberId: "HG-003", firstName: "Samuel", lastName: "Asare", gender: "Male", dateOfBirth: "1988-12-21", phone: "+49 176 319 8724", whatsappPhone: "491763198724", email: "samuel.asare@email.com", address: "Hamburg, Germany", baptismDate: "2005-07-09", baptismStatus: true, maritalStatus: "Married", occupation: "Accountant", department: "Youth Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
-  { id: "4", memberId: "HG-004", firstName: "Esi", lastName: "Owusu", gender: "Female", dateOfBirth: "1985-06-12", phone: "+49 152 737 4309", whatsappPhone: "491527374309", email: "esi.owusu@email.com", address: "Hamburg, Germany", baptismDate: "2002-03-23", baptismStatus: true, maritalStatus: "Married", occupation: "Nurse", department: "Women's Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
-  { id: "5", memberId: "HG-005", firstName: "Daniel", lastName: "Ofori", gender: "Male", dateOfBirth: "1998-02-09", phone: "+49 176 967 5110", whatsappPhone: "491769675110", email: "daniel.ofori@email.com", address: "Hamburg, Germany", baptismDate: "2016-10-15", baptismStatus: true, maritalStatus: "Single", occupation: "Designer", department: "Media Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
+  { id: "1", memberId: "HG-001", firstName: "Kwame", lastName: "Mensah", gender: "Male", dateOfBirth: "1982-04-16", phone: "+49 176 482 0193", whatsappPhone: "491764820193", email: "kwame.mensah@email.com", address: "Hamburg, Germany", baptismDate: "2001-08-11", baptismStatus: true, maritalStatus: "Married", occupation: "Engineer", departmentId: "", department: "Deacons", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
+  { id: "2", memberId: "HG-002", firstName: "Akosua", lastName: "Boateng", gender: "Female", dateOfBirth: "1990-09-03", phone: "+49 157 594 2281", whatsappPhone: "491575942281", email: "akosua.boateng@email.com", address: "Hamburg, Germany", baptismDate: "2007-05-19", baptismStatus: true, maritalStatus: "Single", occupation: "Teacher", departmentId: "", department: "Choir", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
+  { id: "3", memberId: "HG-003", firstName: "Samuel", lastName: "Asare", gender: "Male", dateOfBirth: "1988-12-21", phone: "+49 176 319 8724", whatsappPhone: "491763198724", email: "samuel.asare@email.com", address: "Hamburg, Germany", baptismDate: "2005-07-09", baptismStatus: true, maritalStatus: "Married", occupation: "Accountant", departmentId: "", department: "Youth Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
+  { id: "4", memberId: "HG-004", firstName: "Esi", lastName: "Owusu", gender: "Female", dateOfBirth: "1985-06-12", phone: "+49 152 737 4309", whatsappPhone: "491527374309", email: "esi.owusu@email.com", address: "Hamburg, Germany", baptismDate: "2002-03-23", baptismStatus: true, maritalStatus: "Married", occupation: "Nurse", departmentId: "", department: "Women's Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
+  { id: "5", memberId: "HG-005", firstName: "Daniel", lastName: "Ofori", gender: "Male", dateOfBirth: "1998-02-09", phone: "+49 176 967 5110", whatsappPhone: "491769675110", email: "daniel.ofori@email.com", address: "Hamburg, Germany", baptismDate: "2016-10-15", baptismStatus: true, maritalStatus: "Single", occupation: "Designer", departmentId: "", department: "Media Ministry", membershipStatus: "Active", photoUrl: "", photoThumbnailUrl: "" },
 ];
 
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 const storageKey = "hamburg-ghana-sda-members";
+type DepartmentOption = { id: string; name: string; isActive: boolean };
 
 function memberPayload(member: MemberRecord) {
   return {
@@ -107,6 +109,7 @@ export function MemberManagement() {
   const [canManage, setCanManage] = useState(false);
   const [statusFilter, setStatusFilter] = useState<MemberStatus | "All Statuses">("All Statuses");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
 
   useEffect(() => {
     async function loadMembers() {
@@ -117,7 +120,11 @@ export function MemberManagement() {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
           setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "elder", "church_clerk", "secretary"].includes(role)));
         }
-        const { data, error: loadError } = await supabase.from("members").select("*, department_members(departments(name))").order("last_name");
+        const [{ data, error: loadError }, { data: departmentRows }] = await Promise.all([
+          supabase.from("members").select("*, department_members(department_id, departments(name, is_active))").order("last_name"),
+          supabase.from("departments").select("id, name, is_active").order("name"),
+        ]);
+        setDepartments((departmentRows ?? []).map((department) => ({ id: department.id, name: department.name, isActive: department.is_active })));
         if (loadError) {
           setError(`Unable to load members: ${loadError.message}`);
           setLoading(false);
@@ -139,6 +146,7 @@ export function MemberManagement() {
             baptismStatus: row.baptism_status,
             maritalStatus: titleCase(row.marital_status),
             occupation: row.occupation ?? "",
+            departmentId: row.department_members?.[0]?.department_id ?? "",
             department: row.department_members?.[0]?.departments?.name ?? "",
             membershipStatus: titleCase(row.status) as MemberStatus,
             photoUrl: row.photo_url ?? "",
@@ -220,16 +228,15 @@ export function MemberManagement() {
         setSaving(false);
         return;
       }
-      if (form.department) {
-        const { data: department } = await supabase.from("departments").select("id").eq("name", form.department).maybeSingle();
-        if (department) {
-          const { error: membershipInsertError } = await supabase.from("department_members").insert({ member_id: saved.id, department_id: department.id });
-          if (membershipInsertError) {
-            setError(`Member saved, but the department assignment could not be updated: ${membershipInsertError.message}`);
-            setSaving(false);
-            return;
-          }
+      if (form.departmentId) {
+        const department = departments.find((item) => item.id === form.departmentId);
+        const { error: membershipInsertError } = await supabase.from("department_members").insert({ member_id: saved.id, department_id: form.departmentId });
+        if (membershipInsertError) {
+          setError(`Member saved, but the department assignment could not be updated: ${membershipInsertError.message}`);
+          setSaving(false);
+          return;
         }
+        saved = { ...saved, departmentId: form.departmentId, department: department?.name ?? form.department };
       }
     }
 
@@ -349,9 +356,9 @@ export function MemberManagement() {
               {[ 
                 ["Gender", "gender", ["", "Male", "Female", "Other", "Prefer Not To Say"]],
                 ["Marital Status", "maritalStatus", ["", "Single", "Married", "Divorced", "Widowed", "Other"]],
-                ["Department", "department", ["", ...SDA_DEPARTMENTS]],
                 ["Membership Status", "membershipStatus", ["Active", "Inactive", "Transferred", "Deceased"]],
               ].map(([label, key, options]) => <label className="text-sm font-semibold text-slate-700" key={String(key)}>{label}<select className={fieldClass} value={String(form[key as keyof MemberRecord])} onChange={(event) => setForm({ ...form, [String(key)]: event.target.value })}>{(options as string[]).map((option) => <option key={option} value={option}>{option || "Select option"}</option>)}</select></label>)}
+              <label className="text-sm font-semibold text-slate-700">Department<select className={fieldClass} value={form.departmentId} onChange={(event) => { const department = departments.find((item) => item.id === event.target.value); setForm({ ...form, departmentId: event.target.value, department: department?.name ?? "" }); }}><option value="">Not assigned</option>{departments.map((department) => <option disabled={!department.isActive && department.id !== form.departmentId} key={department.id} value={department.id}>{department.name}{department.isActive ? "" : " (Inactive)"}</option>)}</select></label>
               <label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Profile Photo<input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="mt-1.5 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-churchblue" type="file" onChange={(event) => handlePhotoFile(event.target.files?.[0] ?? null)} /><span className="mt-1 block text-xs font-normal text-slate-400">JPG, JPEG, PNG, or WEBP. Profile photo must be 4 MB or smaller. A thumbnail is generated automatically.</span></label>
               <label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Address<input className={fieldClass} type="text" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></label>
               <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={form.baptismStatus} onChange={(event) => setForm({ ...form, baptismStatus: event.target.checked })} /> Baptized member</label>
