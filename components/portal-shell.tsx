@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
-  BadgeEuro, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, X,
+  BadgeEuro, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LogoMark } from "@/components/logo-mark";
@@ -28,6 +28,7 @@ const nav = [
   { labelKey: "nav.givingHistory", href: "/giving-history", icon: ReceiptText },
   { labelKey: "nav.events", href: "/events", icon: CalendarDays },
   { labelKey: "nav.announcements", href: "/announcements", icon: Megaphone },
+  { labelKey: "nav.communications", href: "/communications", icon: Mail },
   { labelKey: "nav.prayerRequests", href: "/prayer-requests", icon: HeartHandshake },
   { labelKey: "nav.sermonArchive", href: "/sermons", icon: Library },
   { labelKey: "nav.livestream", href: "/livestream", icon: RadioTower },
