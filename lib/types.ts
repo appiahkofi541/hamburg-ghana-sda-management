@@ -1,10 +1,3 @@
-export const SDA_DEPARTMENTS = [
-  "Elders", "Deacons", "Deaconesses", "Treasury", "Secretariat",
-  "Sabbath School", "Youth Ministry", "Women's Ministry", "Men's Ministry",
-  "Pathfinder Club", "Adventurer Club", "Choir", "Media Ministry",
-  "Children's Ministry", "Personal Ministries",
-] as const;
-
 export const ATTENDANCE_SERVICES = [
   "Sabbath School", "Divine Service", "Midweek Prayer Meeting",
   "Youth Program", "Special Event",
@@ -27,7 +20,6 @@ export const FINANCE_REPORTS = [
   "Account Balance",
 ] as const;
 
-export type SdaDepartment = (typeof SDA_DEPARTMENTS)[number];
 export type AttendanceService = (typeof ATTENDANCE_SERVICES)[number];
 export type FinanceFund = (typeof FINANCE_FUNDS)[number];
 export type FinanceAccountType = (typeof FINANCE_ACCOUNT_TYPES)[number];
@@ -43,6 +35,7 @@ export type DepartmentRecord = {
   memberCount: number;
   isActive: boolean;
   leaderId?: string;
+  createdAt?: string;
 };
 
 export type AttendanceRecord = {

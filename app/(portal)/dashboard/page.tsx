@@ -13,7 +13,7 @@ import { MemberAvatar } from "@/components/member-avatar";
 
 const attendance = [68, 74, 62, 78, 72, 83, 76, 88, 80, 91, 86, 94];
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
-const previewTotals = { members: 486, attendance: 298, offerings: currency.format(12480), events: 12 };
+const previewTotals = { members: 486, attendance: 298, offerings: currency.format(12480), events: 12, departments: 0 };
 
 export default function DashboardPage() {
   const t = useT();
@@ -30,10 +30,11 @@ export default function DashboardPage() {
       const today = new Date();
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
       const inThirtyDays = new Date(today.getTime() + 30 * 86400000).toISOString();
-      const [{ count: memberCount }, { data: latestAttendance }, { count: eventCount }, { data: { user } }] = await Promise.all([
+      const [{ count: memberCount }, { data: latestAttendance }, { count: eventCount }, { count: departmentCount }, { data: { user } }] = await Promise.all([
         supabase.from("members").select("id", { count: "exact", head: true }),
         supabase.from("attendance_sessions").select("adult_count, child_count, visitor_count").order("service_date", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("events").select("id", { count: "exact", head: true }).gte("starts_at", today.toISOString()).lte("starts_at", inThirtyDays),
+        supabase.from("departments").select("id", { count: "exact", head: true }).eq("is_active", true),
         supabase.auth.getUser(),
       ]);
 
@@ -77,6 +78,7 @@ export default function DashboardPage() {
         attendance: latestAttendance ? latestAttendance.adult_count + latestAttendance.child_count + latestAttendance.visitor_count : 0,
         offerings,
         events: eventCount ?? 0,
+        departments: departmentCount ?? 0,
       });
     }
     loadTotals();
@@ -198,7 +200,7 @@ export default function DashboardPage() {
         {[
           ["Member Growth", "+14.2%", "Compared to last year"],
           ["Giving Progress", "82%", "Monthly goal reached"],
-          ["Active Departments", "12", "Across all ministries"],
+          ["Active Departments", String(totals.departments), "Across all ministries"],
         ].map(([label, value, note]) => (
           <Card className="flex items-center justify-between p-5" key={label}>
             <div><p className="text-sm font-semibold text-navy">{label}</p><p className="mt-1 text-xs text-slate-400">{note}</p></div>

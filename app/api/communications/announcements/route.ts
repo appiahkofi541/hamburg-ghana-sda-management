@@ -46,6 +46,9 @@ export async function POST(request: Request) {
   const targetAudience = body.targetAudience ?? "all_members";
   if (!title || !message) return NextResponse.json({ error: "Announcement title and body are required." }, { status: 400 });
   if (!["all_members", "department", "leaders"].includes(targetAudience)) return NextResponse.json({ error: "Select a valid target audience." }, { status: 400 });
+  if (targetAudience === "department" && !body.departmentName?.trim()) {
+    return NextResponse.json({ error: "Select a department for department announcements." }, { status: 400 });
+  }
 
   const scheduledAt = toIsoDateTime(body.scheduledAt);
   const expiresAt = toEndOfDayIso(body.expiresAt);

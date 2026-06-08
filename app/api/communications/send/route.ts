@@ -43,14 +43,15 @@ export async function POST(request: Request) {
   const configured = providerConfigured(campaign.channel);
   const status = configured ? "sent" : "failed";
   const errorMessage = configured ? null : providerMessage(campaign.channel);
-  const membersQuery = supabase.from("members").select("id, member_id, full_name, first_name, last_name, email, phone, department:departments(name)").eq("status", "active");
+  const membersQuery = supabase.from("members").select("id, member_id, full_name, first_name, last_name, email, phone, department_members(departments(name))").eq("status", "active");
   const { data: members, error: membersError } = campaign.target_audience === "individual" && campaign.recipient_member_id
     ? await membersQuery.eq("id", campaign.recipient_member_id)
     : await membersQuery;
   if (membersError) return NextResponse.json({ error: membersError.message }, { status: 400 });
 
   const recipients = (members ?? []).filter((member) => {
-    const department = Array.isArray(member.department) ? member.department[0] : member.department;
+    const membership = Array.isArray(member.department_members) ? member.department_members[0] : undefined;
+    const department = Array.isArray(membership?.departments) ? membership.departments[0] : membership?.departments;
     if (campaign.target_audience === "department") return department?.name === campaign.department_name;
     if (campaign.target_audience === "leaders") return true;
     return true;

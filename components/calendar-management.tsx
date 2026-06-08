@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/status-badge";
 
 type EventCategory = "Sabbath Program" | "Camp Meeting" | "Evangelism Campaign" | "Youth Congress" | "Other";
 type Recurrence = "None" | "Weekly" | "Monthly" | "Yearly";
+type DepartmentOption = { id: string; name: string; isActive: boolean };
 type CalendarEvent = {
   id: string;
   title: string;
@@ -24,6 +25,8 @@ type CalendarEvent = {
   recurrence: Recurrence;
   recurrenceUntil: string;
   status: "Published" | "Draft" | "Cancelled";
+  departmentId: string;
+  departmentName: string;
 };
 type EventRegistration = { id: string; eventId: string; status: string; confirmed: boolean };
 
@@ -36,16 +39,16 @@ const categories: { name: EventCategory; tone: string; icon: typeof CalendarDays
 ];
 
 const seedEvents: CalendarEvent[] = [
-  { id: "1", title: "Family Sabbath & Fellowship", description: "A special Sabbath service followed by church family fellowship.", category: "Sabbath Program", startsAt: "2026-06-20T09:30", endsAt: "2026-06-20T17:00", location: "Main Sanctuary & Church Hall", recurrence: "None", recurrenceUntil: "", status: "Published" },
-  { id: "2", title: "Youth Congress Hamburg", description: "Worship, workshops, and fellowship for young adults.", category: "Youth Congress", startsAt: "2026-06-27T10:00", endsAt: "2026-06-28T17:00", location: "Hamburg-Mitte", recurrence: "None", recurrenceUntil: "", status: "Published" },
-  { id: "3", title: "Sabbath School & Worship Service", description: "Weekly Sabbath School and divine worship service.", category: "Sabbath Program", startsAt: "2026-06-06T09:30", endsAt: "2026-06-06T13:30", location: "Main Sanctuary", recurrence: "Weekly", recurrenceUntil: "2026-12-26", status: "Published" },
-  { id: "4", title: "Hamburg Evangelism Campaign", description: "Community Bible teaching and outreach series.", category: "Evangelism Campaign", startsAt: "2026-07-11T18:00", endsAt: "2026-07-18T20:00", location: "Church Hall", recurrence: "None", recurrenceUntil: "", status: "Published" },
-  { id: "5", title: "Northern Germany Camp Meeting", description: "Annual spiritual retreat and church fellowship weekend.", category: "Camp Meeting", startsAt: "2026-08-14T16:00", endsAt: "2026-08-16T14:00", location: "Schleswig-Holstein", recurrence: "Yearly", recurrenceUntil: "", status: "Published" },
+  { id: "1", title: "Family Sabbath & Fellowship", description: "A special Sabbath service followed by church family fellowship.", category: "Sabbath Program", startsAt: "2026-06-20T09:30", endsAt: "2026-06-20T17:00", location: "Main Sanctuary & Church Hall", recurrence: "None", recurrenceUntil: "", status: "Published", departmentId: "", departmentName: "" },
+  { id: "2", title: "Youth Congress Hamburg", description: "Worship, workshops, and fellowship for young adults.", category: "Youth Congress", startsAt: "2026-06-27T10:00", endsAt: "2026-06-28T17:00", location: "Hamburg-Mitte", recurrence: "None", recurrenceUntil: "", status: "Published", departmentId: "", departmentName: "" },
+  { id: "3", title: "Sabbath School & Worship Service", description: "Weekly Sabbath School and divine worship service.", category: "Sabbath Program", startsAt: "2026-06-06T09:30", endsAt: "2026-06-06T13:30", location: "Main Sanctuary", recurrence: "Weekly", recurrenceUntil: "2026-12-26", status: "Published", departmentId: "", departmentName: "" },
+  { id: "4", title: "Hamburg Evangelism Campaign", description: "Community Bible teaching and outreach series.", category: "Evangelism Campaign", startsAt: "2026-07-11T18:00", endsAt: "2026-07-18T20:00", location: "Church Hall", recurrence: "None", recurrenceUntil: "", status: "Published", departmentId: "", departmentName: "" },
+  { id: "5", title: "Northern Germany Camp Meeting", description: "Annual spiritual retreat and church fellowship weekend.", category: "Camp Meeting", startsAt: "2026-08-14T16:00", endsAt: "2026-08-16T14:00", location: "Schleswig-Holstein", recurrence: "Yearly", recurrenceUntil: "", status: "Published", departmentId: "", departmentName: "" },
 ];
 
 const emptyEvent: Omit<CalendarEvent, "id"> = {
   title: "", description: "", category: "Sabbath Program", startsAt: "", endsAt: "",
-  location: "", recurrence: "None", recurrenceUntil: "", status: "Published",
+  location: "", recurrence: "None", recurrenceUntil: "", status: "Published", departmentId: "", departmentName: "",
 };
 const storageKey = "hamburg-ghana-sda-calendar";
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
@@ -65,6 +68,7 @@ function eventPayload(event: Omit<CalendarEvent, "id">) {
     recurrence: event.recurrence.toLowerCase(),
     recurrence_until: event.recurrenceUntil || null,
     status: event.status.toLowerCase(),
+    department_id: event.departmentId || null,
   };
 }
 
@@ -88,6 +92,7 @@ export function CalendarManagement() {
   const [canManage, setCanManage] = useState(!createClient());
   const [memberId, setMemberId] = useState("");
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
 
   useEffect(() => {
     async function loadEvents() {
@@ -104,9 +109,16 @@ export function CalendarManagement() {
             setRegistrations((registrationRows ?? []).map((row) => ({ id: row.id, eventId: row.event_id, status: titleCase(row.registration_status), confirmed: Boolean(row.attendance_confirmed) })));
           }
         }
-        const { data } = await supabase.from("events").select("*").order("starts_at");
+        const [{ data: departmentRows }, { data }] = await Promise.all([
+          supabase.from("departments").select("id, name, is_active").order("name"),
+          supabase.from("events").select("*").order("starts_at"),
+        ]);
+        const departmentOptions = (departmentRows ?? []).map((department) => ({ id: department.id, name: department.name, isActive: Boolean(department.is_active) }));
+        setDepartments(departmentOptions);
         if (data?.length) {
-          setRecords(data.map((row) => ({
+          setRecords(data.map((row) => {
+            const department = departmentOptions.find((item) => item.id === row.department_id);
+            return {
             id: row.id,
             title: row.title,
             description: row.description ?? "",
@@ -117,7 +129,10 @@ export function CalendarManagement() {
             recurrence: titleCase(row.recurrence || "none") as Recurrence,
             recurrenceUntil: row.recurrence_until ?? "",
             status: titleCase(row.status) as CalendarEvent["status"],
-          })));
+            departmentId: row.department_id ?? "",
+            departmentName: department?.name ?? "",
+          };
+          }));
           return;
         }
       }
@@ -156,7 +171,7 @@ export function CalendarManagement() {
       const request = editing ? supabase.from("events").update(eventPayload(form)).eq("id", editing.id).select().single() : supabase.from("events").insert(eventPayload(form)).select().single();
       const { data, error } = await request;
       if (error) { setNotice(`Unable to save event: ${error.message}`); return; }
-      saved = { ...saved, id: data.id };
+      saved = { ...saved, id: data.id, departmentName: departments.find((department) => department.id === form.departmentId)?.name ?? "" };
     }
     setRecords((current) => editing ? current.map((event) => event.id === editing.id ? saved : event) : [...current, saved]);
     setNotice(editing ? "Event updated." : "Event added to the calendar.");
@@ -220,10 +235,10 @@ export function CalendarManagement() {
         <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 md:flex-row"><label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search church events..." value={query} onChange={(event) => setQuery(event.target.value)} /></label><div className="flex gap-2"><select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600" value={category} onChange={(event) => setCategory(event.target.value as EventCategory | "All Events")}><option>All Events</option>{categories.map(({ name }) => <option key={name}>{name}</option>)}</select>{canManage && <Button onClick={() => openForm()}><Plus className="h-4 w-4" /> Add Event</Button>}</div></div>
         <div className="divide-y divide-slate-100">{filtered.map((event) => {
           const registration = registrations.find((item) => item.eventId === event.id);
-          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed ? "green" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p></div></div><div className="flex flex-wrap gap-1 self-end md:self-auto">{memberId && !registration && <Button size="sm" variant="outline" onClick={() => registerForEvent(event)}>Register</Button>}{memberId && registration && !registration.confirmed && <Button size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
+          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed ? "green" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p></div></div><div className="flex flex-wrap gap-1 self-end md:self-auto">{memberId && !registration && <Button size="sm" variant="outline" onClick={() => registerForEvent(event)}>Register</Button>}{memberId && registration && !registration.confirmed && <Button size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
         })}</div>
       </Card>
-      {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={saveEvent}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><div><h2 className="font-bold text-navy">{editing ? "Edit Event" : "Add Event"}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church calendar entry</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close event form" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2">{[["Event Title", "title", "text"], ["Location", "location", "text"], ["Starts At", "startsAt", "datetime-local"], ["Ends At", "endsAt", "datetime-local"], ["Repeat Until", "recurrenceUntil", "date"]].map(([label, key, type]) => <label className="text-sm font-semibold text-slate-700" key={key}>{label}<input className={fieldClass} type={type} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [key]: event.target.value })} required={["title", "startsAt"].includes(key)} /></label>)}{[["Category", "category", categories.map(({ name }) => name)], ["Recurring Event", "recurrence", ["None", "Weekly", "Monthly", "Yearly"]], ["Status", "status", ["Published", "Draft", "Cancelled"]]].map(([label, key, options]) => <label className="text-sm font-semibold text-slate-700" key={String(key)}>{label}<select className={fieldClass} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [String(key)]: event.target.value })}>{(options as string[]).map((option) => <option key={option}>{option}</option>)}</select></label>)}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4"><Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button><Button type="submit">{editing ? "Save Changes" : "Add Event"}</Button></div></form></div>}
+      {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={saveEvent}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><div><h2 className="font-bold text-navy">{editing ? "Edit Event" : "Add Event"}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church calendar entry</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close event form" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2">{[["Event Title", "title", "text"], ["Location", "location", "text"], ["Starts At", "startsAt", "datetime-local"], ["Ends At", "endsAt", "datetime-local"], ["Repeat Until", "recurrenceUntil", "date"]].map(([label, key, type]) => <label className="text-sm font-semibold text-slate-700" key={key}>{label}<input className={fieldClass} type={type} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [key]: event.target.value })} required={["title", "startsAt"].includes(key)} /></label>)}{[["Category", "category", categories.map(({ name }) => name)], ["Recurring Event", "recurrence", ["None", "Weekly", "Monthly", "Yearly"]], ["Status", "status", ["Published", "Draft", "Cancelled"]]].map(([label, key, options]) => <label className="text-sm font-semibold text-slate-700" key={String(key)}>{label}<select className={fieldClass} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [String(key)]: event.target.value })}>{(options as string[]).map((option) => <option key={option}>{option}</option>)}</select></label>)}<label className="text-sm font-semibold text-slate-700">Organizing Department<select className={fieldClass} value={form.departmentId} onChange={(event) => { const department = departments.find((item) => item.id === event.target.value); setForm({ ...form, departmentId: event.target.value, departmentName: department?.name ?? "" }); }}><option value="">No department assigned</option>{departments.map((department) => <option disabled={!department.isActive && department.id !== form.departmentId} key={department.id} value={department.id}>{department.name}{department.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4"><Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button><Button type="submit">{editing ? "Save Changes" : "Add Event"}</Button></div></form></div>}
     </div>
   );
 }

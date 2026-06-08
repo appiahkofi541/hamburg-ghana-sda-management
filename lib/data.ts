@@ -1,22 +1,5 @@
 export type StatusTone = "blue" | "green" | "gold" | "slate" | "red";
 
-export const members = [
-  { id: "HG-001", name: "Kwame Mensah", email: "kwame.mensah@email.com", phone: "+49 176 482 0193", department: "Deacons", status: "Active", joined: "Jan 14, 2021" },
-  { id: "HG-002", name: "Akosua Boateng", email: "akosua.boateng@email.com", phone: "+49 157 594 2281", department: "Choir", status: "Active", joined: "Mar 02, 2022" },
-  { id: "HG-003", name: "Samuel Asare", email: "samuel.asare@email.com", phone: "+49 176 319 8724", department: "Youth Ministry", status: "Active", joined: "Nov 18, 2020" },
-  { id: "HG-004", name: "Esi Owusu", email: "esi.owusu@email.com", phone: "+49 152 737 4309", department: "Women Ministry", status: "Active", joined: "Aug 26, 2023" },
-  { id: "HG-005", name: "Daniel Ofori", email: "daniel.ofori@email.com", phone: "+49 176 967 5110", department: "Media Team", status: "New", joined: "May 10, 2026" },
-];
-
-export const departments = [
-  { name: "Youth Ministry", lead: "Samuel Asare", members: 74, meeting: "Saturdays, 16:00", color: "bg-blue-100 text-blue-700" },
-  { name: "Choir & Music", lead: "Akosua Boateng", members: 38, meeting: "Fridays, 18:30", color: "bg-purple-100 text-purple-700" },
-  { name: "Women Ministry", lead: "Esi Owusu", members: 92, meeting: "1st Sunday, 14:00", color: "bg-rose-100 text-rose-700" },
-  { name: "Deacons", lead: "Kwame Mensah", members: 26, meeting: "Monthly", color: "bg-emerald-100 text-emerald-700" },
-  { name: "Media Team", lead: "Daniel Ofori", members: 16, meeting: "Saturdays, 08:30", color: "bg-amber-100 text-amber-700" },
-  { name: "Children Ministry", lead: "Adwoa Nyarko", members: 48, meeting: "Saturdays, 09:15", color: "bg-cyan-100 text-cyan-700" },
-];
-
 export const events = [
   { date: "06", month: "JUN", title: "Youth Prayer & Worship Night", time: "18:30 - 21:00", location: "Main Sanctuary", type: "Youth" },
   { date: "13", month: "JUN", title: "Community Health Outreach", time: "10:00 - 15:00", location: "Hamburg-Mitte", type: "Outreach" },
