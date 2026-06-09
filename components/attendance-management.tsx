@@ -75,12 +75,12 @@ function serviceTypeFor(categoryName: string) {
 function relatedName(value: unknown) {
   if (!value) return "";
   if (Array.isArray(value)) return relatedName(value[0]);
-  const row = value as { name?: unknown; full_name?: unknown; member_id?: unknown };
-  return String(row.name ?? row.full_name ?? row.member_id ?? "");
+  const row = value as { name?: unknown; full_name?: unknown };
+  return String(row.name ?? row.full_name ?? "");
 }
 
-function memberNumber(member: { member_id?: string | null; member_number?: string | null; id: string }) {
-  return member.member_id || member.member_number || member.id.slice(0, 8).toUpperCase();
+function memberNumber(member: { id: string }) {
+  return member.id.slice(0, 8).toUpperCase();
 }
 
 function rowDate(row: AttendanceRecord) {
@@ -136,11 +136,11 @@ export function AttendanceManagement() {
 
     const [categoryResult, memberResult, departmentResult, entryResult] = await Promise.all([
       supabase.from("attendance_categories").select("*").order("sort_order").order("name"),
-      supabase.from("members").select("id, member_id, member_number, full_name, first_name, last_name, photo_thumbnail_url, photo_url, department_members(departments(name))").eq("status", "active").order("last_name"),
+      supabase.from("members").select("id, full_name, first_name, last_name, photo_thumbnail_url, photo_url, department_members(departments(name))").eq("status", "active").order("last_name"),
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase
         .from("attendance_entries")
-        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_id, member_number, full_name), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
+        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, full_name), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
         .order("checked_in_at", { ascending: false }),
     ]);
 
