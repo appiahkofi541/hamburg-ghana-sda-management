@@ -246,6 +246,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [report, setReport] = useState<FinanceReport>("Income and Expenditure");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [transactionDebug, setTransactionDebug] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isTreasurer, setIsTreasurer] = useState(false);
@@ -636,12 +637,44 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         reference_number: generatedReference,
         recorded_by: user?.id ?? null,
       };
-      const request = editingTransaction
-        ? supabase.from("finance_transactions").update(payload).eq("id", editingTransaction.id).select("id").single()
-        : supabase.from("finance_transactions").insert(payload).select("id").single();
-      const { data: savedPayment, error: saveError } = await request;
+      const debugStart = {
+        mode: editingTransaction ? "update" : "insert",
+        transactionId: editingTransaction?.id ?? null,
+        amountBeingSaved: Number(transactionForm.amount),
+        categoryId: transactionForm.categoryId,
+        accountId: transactionForm.accountId,
+        memberId: transactionForm.memberId || null,
+      };
+      setTransactionDebug(`Saving contribution debug:\n${JSON.stringify(debugStart, null, 2)}`);
+      console.info("Saving contribution", debugStart);
+
+      const { data: savedPayment, error: saveError } = editingTransaction
+        ? await supabase
+          .from("finance_transactions")
+          .update(payload)
+          .eq("id", editingTransaction.id)
+          .select("id, amount, reference_number, updated_at")
+          .maybeSingle()
+        : await supabase
+          .from("finance_transactions")
+          .insert(payload)
+          .select("id, amount, reference_number, updated_at")
+          .single();
+
+      const debugResult = {
+        ...debugStart,
+        updateResult: savedPayment,
+        supabaseError: saveError ? { message: saveError.message, code: saveError.code, details: saveError.details, hint: saveError.hint } : null,
+      };
+      setTransactionDebug(`Contribution save debug:\n${JSON.stringify(debugResult, null, 2)}`);
+      console.info("Contribution save result", debugResult);
       if (saveError) {
         setError(`${saveError.message}. Check that RLS allows Treasurer/Admin to update finance_transactions and that migration 202606090004_contributions_management.sql has been applied.`);
+        setSaving(false);
+        return;
+      }
+      if (editingTransaction && !savedPayment?.id) {
+        setError(`No finance_transactions row was updated for id ${editingTransaction.id}. Check the transaction id and RLS update policy.`);
         setSaving(false);
         return;
       }
@@ -658,6 +691,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         else setNotice("Payment saved and WhatsApp receipt processed.");
       }
       await reloadAfterWrite();
+    } else {
+      setTransactionDebug(`Contribution save debug:\n${JSON.stringify({ mode: editingTransaction ? "update" : "insert", transactionId: editingTransaction?.id ?? null, amountBeingSaved: Number(transactionForm.amount), updateResult: "local fallback only", supabaseError: null }, null, 2)}`);
     }
     setNotice((current) => current || (editingTransaction ? "Payment updated successfully." : "Payment recorded successfully."));
     setError("");
@@ -783,6 +818,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+      {transactionDebug && <pre className="whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">{transactionDebug}</pre>}
       <div className={`rounded-lg px-4 py-3 text-sm font-medium ${canManageContributions ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{accessMessage}</div>
       {!whatsappConfigured && <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">WhatsApp integration not configured yet.</div>}
 
