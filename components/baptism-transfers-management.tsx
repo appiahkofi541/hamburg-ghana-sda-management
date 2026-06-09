@@ -56,7 +56,7 @@ const modules: ModuleConfig[] = [
     orderColumn: "created_at",
     icon: Users,
     fields: [
-      { key: "candidate_id", label: "Candidate ID", required: true },
+      { key: "candidate_id", label: "Candidate ID" },
       { key: "full_name", label: "Full Name", required: true },
       { key: "date_of_birth", label: "Date of Birth", type: "date" },
       { key: "gender", label: "Gender", type: "select", options: genderOptions },
@@ -208,6 +208,14 @@ function emptyForm(config: ModuleConfig) {
   return Object.fromEntries(config.fields.map((field) => [field.key, field.options?.[0]?.value ?? ""]));
 }
 
+function nextCandidateId(records: ModuleRecord[]) {
+  const next = records.reduce((max, record) => {
+    const match = /^BC-(\d+)$/i.exec(record.data.candidate_id ?? "");
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0) + 1;
+  return `BC-${String(next).padStart(3, "0")}`;
+}
+
 function payloadFrom(form: Record<string, string>, userId?: string) {
   return Object.fromEntries(
     Object.entries({ ...form, updated_by: userId ?? null }).map(([key, value]) => {
@@ -322,7 +330,12 @@ export function BaptismTransfersManagement() {
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManage) return;
-    const validation = activeModule.fields.filter((field) => field.required).map((field) => required(form[field.key], field.label)).find(Boolean);
+    const workingForm = { ...form };
+    if (activeModule.key === "candidates" && !workingForm.candidate_id?.trim()) {
+      workingForm.candidate_id = nextCandidateId(records.candidates);
+      setForm(workingForm);
+    }
+    const validation = activeModule.fields.filter((field) => field.required).map((field) => required(workingForm[field.key], field.label)).find(Boolean);
     if (validation) {
       setError(validation);
       return;
@@ -337,13 +350,13 @@ export function BaptismTransfersManagement() {
     }
 
     const { data: { user } } = await supabase.auth.getUser();
-    const payload = payloadFrom(form, user?.id);
+    const payload = payloadFrom(workingForm, user?.id);
     const request = editing
       ? supabase.from(activeModule.table).update(payload).eq("id", editing.id).select().single()
       : supabase.from(activeModule.table).insert({ ...payload, created_by: user?.id ?? null }).select().single();
     const { data, error: saveError } = await request;
     if (saveError) {
-      setError(saveError.message);
+      setError(`Unable to save ${activeModule.title}: ${saveError.message}`);
       setSaving(false);
       return;
     }
@@ -363,6 +376,7 @@ export function BaptismTransfersManagement() {
     setNotice(editing ? `${activeModule.title} record updated.` : `${activeModule.title} record created.`);
     setSaving(false);
     closeForm();
+    void loadRecords();
   }
 
   async function remove(record: ModuleRecord) {
@@ -469,7 +483,7 @@ export function BaptismTransfersManagement() {
         <ReportCard title="Membership Growth Reports" rows={[["Baptisms this year", summary[2].value], ["Professions of faith", records.profession.length], ["Completed transfers in", records.transferIn.filter((record) => ["received", "completed"].includes(record.data.status)).length]]} />
       </section>
 
-      {showForm && <RecordModal candidates={candidates} config={activeModule} form={form} saving={saving} setForm={setForm} editing={editing} onClose={closeForm} onSubmit={save} />}
+      {showForm && <RecordModal candidates={candidates} config={activeModule} error={error} form={form} saving={saving} setForm={setForm} editing={editing} onClose={closeForm} onSubmit={save} />}
     </div>
   );
 }
@@ -478,9 +492,10 @@ function ReportCard({ title, rows }: { title: string; rows: [string, number][] }
   return <Card><CardHeader><div><h2 className="font-bold text-navy">{title}</h2><p className="mt-1 text-xs text-slate-400">Summary for Hamburg Ghana SDA Church records.</p></div></CardHeader><CardContent className="space-y-2">{rows.map(([label, value]) => <div className="flex justify-between rounded-lg border border-slate-100 p-3 text-sm" key={label}><span className="text-slate-600">{label}</span><span className="font-bold text-churchblue">{value}</span></div>)}</CardContent></Card>;
 }
 
-function RecordModal({ candidates, config, form, setForm, saving, editing, onClose, onSubmit }: {
+function RecordModal({ candidates, config, error, form, setForm, saving, editing, onClose, onSubmit }: {
   candidates: CandidateOption[];
   config: ModuleConfig;
+  error: string;
   form: Record<string, string>;
   setForm: (form: Record<string, string>) => void;
   saving: boolean;
@@ -497,13 +512,13 @@ function RecordModal({ candidates, config, form, setForm, saving, editing, onClo
     setForm({ ...form, [key]: value });
   }
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white p-5"><div><h2 className="font-bold text-navy">{editing ? "Edit" : "Create"} {config.title}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church baptism and transfer record.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close form" onClick={onClose}><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2">{config.fields.map((field) => <FieldControl field={field} candidates={candidates} key={field.key} value={form[field.key] ?? ""} onChange={(value) => updateField(field.key, value)} />)}</div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save Record"}</Button></div></form></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form noValidate className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white p-5"><div><h2 className="font-bold text-navy">{editing ? "Edit" : "Create"} {config.title}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church baptism and transfer record.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close form" onClick={onClose}><X className="h-5 w-5" /></Button></div>{error && <p className="mx-5 mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</p>}<div className="grid gap-4 p-5 sm:grid-cols-2">{config.fields.map((field) => <FieldControl field={field} candidates={candidates} key={field.key} value={form[field.key] ?? ""} onChange={(value) => updateField(field.key, value)} />)}</div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save Record"}</Button></div></form></div>;
 }
 
 function FieldControl({ field, value, candidates, onChange }: { field: FieldConfig; value: string; candidates: CandidateOption[]; onChange: (value: string) => void }) {
   const label = <>{field.label}{field.required ? <span className="text-rose-500"> *</span> : null}</>;
   if (field.type === "textarea") return <label className="text-sm font-semibold text-slate-700 sm:col-span-2">{label}<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={value} onChange={(event) => onChange(event.target.value)} /></label>;
-  if (field.type === "select") return <label className="text-sm font-semibold text-slate-700">{label}<select className={fieldClass} required={field.required} value={value} onChange={(event) => onChange(event.target.value)}>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+  if (field.type === "select") return <label className="text-sm font-semibold text-slate-700">{label}<select className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)}>{field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
   if (field.type === "candidate") return <label className="text-sm font-semibold text-slate-700">{label}<select className={fieldClass} value={value} onChange={(event) => onChange(event.target.value)}><option value="">Select candidate</option>{candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}</select></label>;
-  return <label className="text-sm font-semibold text-slate-700">{label}<input className={fieldClass} required={field.required} type={field.type === "date" ? "date" : field.type === "number" ? "number" : "text"} min={field.type === "number" ? "0" : undefined} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+  return <label className="text-sm font-semibold text-slate-700">{label}<input className={fieldClass} type={field.type === "date" ? "date" : field.type === "number" ? "number" : "text"} min={field.type === "number" ? "0" : undefined} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
