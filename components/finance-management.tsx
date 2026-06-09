@@ -987,8 +987,14 @@ function Breakdown({ title, rows }: { title: string; rows: [string, number][] })
 function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transactionId: string) => void }) {
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
-  const handleEdit = (transaction: Transaction) => onEdit(transaction);
-  const handleDelete = (transactionId: string) => onDelete(transactionId);
+  const handleEdit = (transaction: Transaction) => {
+    alert("Edit clicked");
+    onEdit(transaction);
+  };
+  const handleDelete = (transactionId: string) => {
+    alert("Delete clicked");
+    onDelete(transactionId);
+  };
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[1080px] text-left text-sm">
