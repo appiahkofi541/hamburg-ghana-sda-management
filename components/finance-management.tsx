@@ -12,6 +12,7 @@ import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { useT } from "@/components/language-provider";
+import { normalizeRoles } from "@/lib/auth";
 import {
   FINANCE_ACCOUNT_TYPES,
   FINANCE_REPORTS,
@@ -274,7 +275,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       if (user) {
         setCurrentUserId(user.id);
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-        const roleNames = (roleRows ?? []).map(({ role }) => role);
+        const roleNames = normalizeRoles((roleRows ?? []).map(({ role }) => role));
         setIsTreasurer(roleNames.includes("treasurer"));
         setCanManageContributions(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
         setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
@@ -433,8 +434,13 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   function openTransaction(transaction?: Transaction) {
-    if (!canManageContributions) return;
+    if (!canManageContributions) {
+      setError("Access denied: only Treasurer or Admin can edit contribution records.");
+      return;
+    }
     const selectedCategory = categories.find((category) => category.id === transaction?.categoryId);
+    setNotice("");
+    setError("");
     setEditingTransaction(transaction ?? null);
     setTransactionForm(transaction ? {
       date: transaction.date,
@@ -448,6 +454,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       notes: transaction.notes,
       reference: transaction.reference,
     } : { ...emptyTransaction, accountId: accounts[0]?.id ?? "", categoryId: categories.find((category) => category.isActive && category.group === "Income")?.id ?? "" });
+  }
+
+  function handleEdit(transaction: Transaction) {
+    openTransaction(transaction);
   }
 
   function openCategory(category?: Category) {
@@ -596,7 +606,11 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   async function saveTransaction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!transactionForm || !canManageContributions) return;
+    if (!transactionForm) return;
+    if (!canManageContributions) {
+      setError("Access denied: only Treasurer or Admin can save contribution records.");
+      return;
+    }
     const selectedCategory = categories.find((category) => category.id === transactionForm.categoryId);
     const validationError = required(transactionForm.accountId, "Account") || required(transactionForm.categoryId, "Finance sub-account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
     if (validationError) { setError(validationError); return; }
@@ -627,7 +641,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         : supabase.from("finance_transactions").insert(payload).select("id").single();
       const { data: savedPayment, error: saveError } = await request;
       if (saveError) {
-        setError(`${saveError.message}. If this mentions payment_method or notes, apply migration 202606030006_finance_payment_member_workflow.sql in Supabase.`);
+        setError(`${saveError.message}. Check that RLS allows Treasurer/Admin to update finance_transactions and that migration 202606090004_contributions_management.sql has been applied.`);
         setSaving(false);
         return;
       }
@@ -652,14 +666,29 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     setEditingTransaction(null);
   }
 
-  async function deleteTransaction(transaction: Transaction) {
-    if (!canManageContributions) return;
+  async function handleDelete(transactionId: string) {
+    if (!canManageContributions) {
+      setError("Access denied: only Treasurer or Admin can delete contribution records.");
+      return;
+    }
+    const transaction = transactions.find((item) => item.id === transactionId);
+    if (!transaction) {
+      setError("Contribution record was not found. Refresh the page and try again.");
+      return;
+    }
     if (!window.confirm(`Delete payment ${transaction.reference || transaction.description}?`)) return;
+    setNotice("");
+    setError("");
     const supabase = createClient();
     if (supabase) {
-      const { error: deleteError } = await supabase.from("finance_transactions").delete().eq("id", transaction.id);
-      if (deleteError) { setError(deleteError.message); return; }
+      const { error: deleteError } = await supabase.from("finance_transactions").delete().eq("id", transactionId);
+      if (deleteError) {
+        setError(`${deleteError.message}. Check that RLS allows Treasurer/Admin to delete finance_transactions.`);
+        return;
+      }
       await reloadAfterWrite();
+    } else {
+      setTransactions((current) => current.filter((item) => item.id !== transactionId));
     }
     setNotice("Payment deleted successfully.");
   }
@@ -830,7 +859,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label="Total donations this month" value={currency.format(totalDonationsThisMonth)} />
           </div>
           {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns incomeSubAccountTotals={incomeSubAccountTotals} expenditureSubAccountTotals={expenditureSubAccountTotals} memberTotals={memberTotals} monthTotals={monthTotals} paymentMethodTotals={paymentMethodTotals} />}
-          <TransactionTable rows={reportRows} canManage={canManageContributions && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={reportRows} canManage={canManageContributions && activeTab === "history"} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -870,7 +899,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search payments..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
             <Button disabled={!canManageContributions} title={canManageContributions ? "Add a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
           </div>
-          <TransactionTable rows={transactionRows} canManage={canManageContributions} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={transactionRows} canManage={canManageContributions} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -885,7 +914,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label={t("finance.expenditure")} value={currency.format(expenditure)} />
             <ReportCard label="Net Balance" value={currency.format(income - expenditure)} />
           </div>
-          <TransactionTable rows={filteredTransactions} canManage={false} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={filteredTransactions} canManage={false} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -955,15 +984,17 @@ function Breakdown({ title, rows }: { title: string; rows: [string, number][] })
   return <div className="rounded-xl border border-slate-100 p-4"><h3 className="font-bold text-navy">{title}</h3><div className="mt-3 space-y-2">{rows.length ? rows.map(([label, value]) => <div className="flex justify-between gap-3 text-sm" key={label}><span className="text-slate-600">{label}</span><span className="font-bold text-churchblue">{currency.format(value)}</span></div>) : <p className="text-sm text-slate-500">No records found.</p>}</div></div>;
 }
 
-function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
+function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transactionId: string) => void }) {
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
+  const handleEdit = (transaction: Transaction) => onEdit(transaction);
+  const handleDelete = (transactionId: string) => onDelete(transactionId);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[1080px] text-left text-sm">
         <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member Name", "Sub-Account", "Method", "Account", "Entered By", "Reference", "Amount", "WhatsApp", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
         <tbody>
-          {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button disabled={!canManage} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!canManage} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
+          {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button type="button" variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button type="button" disabled={!canManage} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button type="button" disabled={!canManage} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
           {rows.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={10}>No payments found.</td></tr>}
         </tbody>
       </table>
