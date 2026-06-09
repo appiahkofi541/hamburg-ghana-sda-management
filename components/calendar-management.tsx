@@ -67,6 +67,10 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function isFuturePublishedEvent(event: CalendarEvent) {
+  return event.status === "Published" && new Date(event.startsAt).getTime() >= Date.now();
+}
+
 function eventPayload(event: Omit<CalendarEvent, "id">) {
   return {
     title: event.title,
@@ -112,7 +116,11 @@ export function CalendarManagement() {
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
           setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "elder", "church_clerk", "secretary", "department_head"].includes(role)));
-          const { data: member } = await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle();
+          const { data: profileMember } = await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle();
+          const { data: emailMember } = profileMember?.id || !user.email
+            ? { data: null }
+            : await supabase.from("members").select("id").eq("email", user.email).maybeSingle();
+          const member = profileMember ?? emailMember;
           if (member?.id) {
             setMemberId(member.id);
             const { data: registrationRows, error: registrationError } = await supabase.from("event_registrations").select("*").eq("member_id", member.id);
@@ -280,8 +288,10 @@ export function CalendarManagement() {
         <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 md:flex-row"><label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search church events..." value={query} onChange={(event) => setQuery(event.target.value)} /></label><div className="flex gap-2"><select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600" value={category} onChange={(event) => setCategory(event.target.value as EventCategory | "All Events")}><option>All Events</option>{categories.map(({ name }) => <option key={name}>{name}</option>)}</select>{canManage && <Button onClick={() => openForm()}><Plus className="h-4 w-4" /> Add Event</Button>}</div></div>
         <div className="divide-y divide-slate-100">{filtered.map((event) => {
           const registration = registrations.find((item) => item.eventId === event.id);
-          const canRegister = memberId && isUuid(event.id) && isUuid(memberId) && (!registration || registration.status === "Cancelled");
-          const canCancel = memberId && registration && registration.status === "Registered" && !registration.confirmed;
+          const isFuturePublished = isFuturePublishedEvent(event);
+          const hasValidRegistrationIds = isUuid(event.id) && isUuid(memberId);
+          const canRegister = Boolean(memberId && hasValidRegistrationIds && isFuturePublished && (!registration || registration.status === "Cancelled"));
+          const canCancel = Boolean(memberId && hasValidRegistrationIds && isFuturePublished && registration && registration.status === "Registered" && !registration.confirmed);
           return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed || registration.status === "Attended" ? "green" : registration.status === "Cancelled" ? "slate" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p></div></div><div className="flex flex-wrap gap-1 self-end md:self-auto">{canRegister && <Button size="sm" variant="outline" onClick={() => registerForEvent(event)}>{registration?.status === "Cancelled" ? "Register Again" : "Register"}</Button>}{canCancel && <Button size="sm" variant="outline" onClick={() => cancelRegistration(event)}>Cancel Registration</Button>}{memberId && registration && registration.status === "Registered" && !registration.confirmed && <Button size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
         })}</div>
       </Card>
