@@ -105,6 +105,8 @@ export function CalendarManagement() {
   const [notice, setNotice] = useState("");
   const [canManage, setCanManage] = useState(!createClient());
   const [memberId, setMemberId] = useState("");
+  const [memberLookupComplete, setMemberLookupComplete] = useState(!createClient());
+  const [memberLookupMessage, setMemberLookupMessage] = useState("");
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
 
@@ -114,13 +116,22 @@ export function CalendarManagement() {
       if (supabase) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          setMemberLookupComplete(false);
+          setMemberLookupMessage("");
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
           setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "elder", "church_clerk", "secretary", "department_head"].includes(role)));
+          const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
+          const loginEmail = user.email ?? profile?.email ?? "";
           const { data: profileMember } = await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle();
-          const { data: emailMember } = profileMember?.id || !user.email
-            ? { data: null }
-            : await supabase.from("members").select("id").eq("email", user.email).maybeSingle();
-          const member = profileMember ?? emailMember;
+          let member = profileMember;
+          if (!member?.id && loginEmail) {
+            const { data: emailMember } = await supabase.from("members").select("id").ilike("email", loginEmail).maybeSingle();
+            member = emailMember;
+          }
+          if (!member?.id && profile?.full_name) {
+            const { data: nameMember } = await supabase.from("members").select("id").ilike("full_name", profile.full_name).maybeSingle();
+            member = nameMember;
+          }
           if (member?.id) {
             setMemberId(member.id);
             const { data: registrationRows, error: registrationError } = await supabase.from("event_registrations").select("*").eq("member_id", member.id);
@@ -129,7 +140,14 @@ export function CalendarManagement() {
             } else {
               setRegistrations((registrationRows ?? []).map((row) => ({ id: row.id, eventId: row.event_id, status: registrationStatus(row.registration_status), confirmed: Boolean(row.attendance_confirmed) })));
             }
+          } else {
+            setMemberId("");
+            setRegistrations([]);
+            setMemberLookupMessage("Event registration is unavailable because this login is not linked to a member record. Ask an admin to connect this user account to the member profile or match the member email address.");
           }
+          setMemberLookupComplete(true);
+        } else {
+          setMemberLookupComplete(true);
         }
         const [{ data: departmentRows }, { data }] = await Promise.all([
           supabase.from("departments").select("id, name, is_active").order("name"),
@@ -286,13 +304,14 @@ export function CalendarManagement() {
       </section>
       <Card>
         <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 md:flex-row"><label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search church events..." value={query} onChange={(event) => setQuery(event.target.value)} /></label><div className="flex gap-2"><select className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600" value={category} onChange={(event) => setCategory(event.target.value as EventCategory | "All Events")}><option>All Events</option>{categories.map(({ name }) => <option key={name}>{name}</option>)}</select>{canManage && <Button onClick={() => openForm()}><Plus className="h-4 w-4" /> Add Event</Button>}</div></div>
+        {memberLookupMessage && <div className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">{memberLookupMessage}</div>}
         <div className="divide-y divide-slate-100">{filtered.map((event) => {
           const registration = registrations.find((item) => item.eventId === event.id);
           const isFuturePublished = isFuturePublishedEvent(event);
           const hasValidRegistrationIds = isUuid(event.id) && isUuid(memberId);
           const canRegister = Boolean(memberId && hasValidRegistrationIds && isFuturePublished && (!registration || registration.status === "Cancelled"));
           const canCancel = Boolean(memberId && hasValidRegistrationIds && isFuturePublished && registration && registration.status === "Registered" && !registration.confirmed);
-          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed || registration.status === "Attended" ? "green" : registration.status === "Cancelled" ? "slate" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p></div></div><div className="flex flex-wrap gap-1 self-end md:self-auto">{canRegister && <Button size="sm" variant="outline" onClick={() => registerForEvent(event)}>{registration?.status === "Cancelled" ? "Register Again" : "Register"}</Button>}{canCancel && <Button size="sm" variant="outline" onClick={() => cancelRegistration(event)}>Cancel Registration</Button>}{memberId && registration && registration.status === "Registered" && !registration.confirmed && <Button size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
+          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed || registration.status === "Attended" ? "green" : registration.status === "Cancelled" ? "slate" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p></div></div><div className="flex flex-wrap justify-end gap-1 self-end md:self-auto">{registration?.status === "Registered" && <StatusBadge tone="green">Registered</StatusBadge>}{isFuturePublished && memberLookupComplete && !memberId && <Button size="sm" variant="outline" disabled>Member profile required</Button>}{canRegister && <Button size="sm" variant="outline" onClick={() => registerForEvent(event)}>{registration?.status === "Cancelled" ? "Register Again" : "Register"}</Button>}{canCancel && <Button size="sm" variant="outline" onClick={() => cancelRegistration(event)}>Cancel Registration</Button>}{memberId && registration && registration.status === "Registered" && !registration.confirmed && <Button size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
         })}</div>
       </Card>
       {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={saveEvent}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><div><h2 className="font-bold text-navy">{editing ? "Edit Event" : "Add Event"}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church calendar entry</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close event form" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2">{[["Event Title", "title", "text"], ["Location", "location", "text"], ["Starts At", "startsAt", "datetime-local"], ["Ends At", "endsAt", "datetime-local"], ["Repeat Until", "recurrenceUntil", "date"]].map(([label, key, type]) => <label className="text-sm font-semibold text-slate-700" key={key}>{label}<input className={fieldClass} type={type} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [key]: event.target.value })} required={["title", "startsAt"].includes(key)} /></label>)}{[["Category", "category", categories.map(({ name }) => name)], ["Recurring Event", "recurrence", ["None", "Weekly", "Monthly", "Yearly"]], ["Status", "status", ["Published", "Draft", "Cancelled"]]].map(([label, key, options]) => <label className="text-sm font-semibold text-slate-700" key={String(key)}>{label}<select className={fieldClass} value={String(form[key as keyof typeof form])} onChange={(event) => setForm({ ...form, [String(key)]: event.target.value })}>{(options as string[]).map((option) => <option key={option}>{option}</option>)}</select></label>)}<label className="text-sm font-semibold text-slate-700">Organizing Department<select className={fieldClass} value={form.departmentId} onChange={(event) => { const department = departments.find((item) => item.id === event.target.value); setForm({ ...form, departmentId: event.target.value, departmentName: department?.name ?? "" }); }}><option value="">No department assigned</option>{departments.map((department) => <option disabled={!department.isActive && department.id !== form.departmentId} key={department.id} value={department.id}>{department.name}{department.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4"><Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button><Button type="submit">{editing ? "Save Changes" : "Add Event"}</Button></div></form></div>}
