@@ -246,9 +246,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [report, setReport] = useState<FinanceReport>("Income and Expenditure");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [transactionDebug, setTransactionDebug] = useState("");
+  const [operationMessage, setOperationMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [processingTransactionId, setProcessingTransactionId] = useState("");
   const [isTreasurer, setIsTreasurer] = useState(false);
   const [canManageContributions, setCanManageContributions] = useState(false);
   const [canManageSubAccounts, setCanManageSubAccounts] = useState(false);
@@ -528,6 +529,54 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     })));
   }
 
+  async function refreshContributionData() {
+    const supabase = createClient();
+    if (!supabase) return;
+    const [{ data: logRows }, { data: transactionRows, error: transactionError }] = await Promise.all([
+      supabase.from("whatsapp_payment_notification_logs").select("*").order("created_at", { ascending: false }),
+      supabase.from("finance_transactions").select("*, account:finance_accounts!finance_transactions_account_id_fkey(name), transfer_account:finance_accounts!finance_transactions_transfer_to_account_id_fkey(name), finance_categories(name), members(full_name), recorded_by_profile:profiles!finance_transactions_recorded_by_fkey(full_name)").order("transaction_date", { ascending: false }),
+    ]);
+    if (transactionError) {
+      setError(`Contribution saved, but refresh failed: ${transactionError.message}`);
+      return;
+    }
+    const logs = (logRows ?? []).map((row) => ({
+      id: row.id,
+      memberId: row.member_id ?? "",
+      paymentId: row.payment_id ?? "",
+      phoneNumber: row.phone_number,
+      message: row.message,
+      status: labelize(row.status),
+      errorMessage: row.error_message ?? "",
+      sentAt: row.sent_at ?? "",
+      createdAt: row.created_at,
+    }));
+    setNotificationLogs(logs);
+    const logByPayment = new Map(logs.map((log) => [log.paymentId, log]));
+    setTransactions((transactionRows ?? []).map((row) => ({
+      id: row.id,
+      date: row.transaction_date,
+      type: labelize(row.transaction_type) as StoredTransactionType,
+      accountId: row.account_id,
+      accountName: relatedName(row.account),
+      memberId: row.member_id ?? "",
+      memberName: relatedName(row.members),
+      transferToAccountId: row.transfer_to_account_id ?? "",
+      transferToAccountName: relatedName(row.transfer_account),
+      categoryId: row.category_id ?? "",
+      categoryName: relatedName(row.finance_categories),
+      amount: Number(row.amount),
+      currency: row.currency ?? "EUR",
+      description: row.description,
+      paymentMethod: labelize(row.payment_method) as PaymentMethod,
+      notes: row.notes ?? "",
+      reference: row.reference_number ?? "",
+      whatsappStatus: logByPayment.get(row.id)?.status ?? "Not Sent",
+      whatsappError: logByPayment.get(row.id)?.errorMessage ?? "",
+      enteredBy: relatedName(row.recorded_by_profile) || "Church Treasurer",
+    })));
+  }
+
   async function saveAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accountForm || !isTreasurer) return;
@@ -616,43 +665,40 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     const validationError = required(transactionForm.accountId, "Account") || required(transactionForm.categoryId, "Finance sub-account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
     if (validationError) { setError(validationError); return; }
     if (!selectedCategory) { setError("Select a valid finance sub-account."); return; }
+    const formSnapshot = { ...transactionForm };
+    const editingSnapshot = editingTransaction;
+    const categorySnapshot = selectedCategory;
     setSaving(true);
+    setNotice("");
+    setError("");
+    setOperationMessage(editingSnapshot ? "Updating contribution..." : "Saving contribution...");
+    setTransactionForm(null);
+    setEditingTransaction(null);
     const supabase = createClient();
     if (supabase) {
       const { data: { user } } = await supabase.auth.getUser();
-      const generatedReference = transactionForm.reference || receiptNumber();
-      const description = transactionForm.notes || `${selectedCategory.name} ${selectedCategory.group.toLowerCase()}`;
+      const generatedReference = formSnapshot.reference || receiptNumber();
+      const description = formSnapshot.notes || `${categorySnapshot.name} ${categorySnapshot.group.toLowerCase()}`;
       const payload = {
-        transaction_date: transactionForm.date,
-        transaction_type: categoryTypeForGroup(selectedCategory.group),
-        account_id: transactionForm.accountId,
-        member_id: transactionForm.memberId || null,
+        transaction_date: formSnapshot.date,
+        transaction_type: categoryTypeForGroup(categorySnapshot.group),
+        account_id: formSnapshot.accountId,
+        member_id: formSnapshot.memberId || null,
         transfer_to_account_id: null,
-        category_id: selectedCategory.id,
-        amount: Number(transactionForm.amount),
+        category_id: categorySnapshot.id,
+        amount: Number(formSnapshot.amount),
         currency: "EUR",
         description,
-        payment_method: enumize(transactionForm.paymentMethod),
-        notes: transactionForm.notes || null,
+        payment_method: enumize(formSnapshot.paymentMethod),
+        notes: formSnapshot.notes || null,
         reference_number: generatedReference,
         recorded_by: user?.id ?? null,
       };
-      const debugStart = {
-        mode: editingTransaction ? "update" : "insert",
-        transactionId: editingTransaction?.id ?? null,
-        amountBeingSaved: Number(transactionForm.amount),
-        categoryId: transactionForm.categoryId,
-        accountId: transactionForm.accountId,
-        memberId: transactionForm.memberId || null,
-      };
-      setTransactionDebug(`Saving contribution debug:\n${JSON.stringify(debugStart, null, 2)}`);
-      console.info("Saving contribution", debugStart);
-
-      const { data: savedPayment, error: saveError } = editingTransaction
+      const { data: savedPayment, error: saveError } = editingSnapshot
         ? await supabase
           .from("finance_transactions")
           .update(payload)
-          .eq("id", editingTransaction.id)
+          .eq("id", editingSnapshot.id)
           .select("id, amount, reference_number, updated_at")
           .maybeSingle()
         : await supabase
@@ -660,25 +706,19 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
           .insert(payload)
           .select("id, amount, reference_number, updated_at")
           .single();
-
-      const debugResult = {
-        ...debugStart,
-        updateResult: savedPayment,
-        supabaseError: saveError ? { message: saveError.message, code: saveError.code, details: saveError.details, hint: saveError.hint } : null,
-      };
-      setTransactionDebug(`Contribution save debug:\n${JSON.stringify(debugResult, null, 2)}`);
-      console.info("Contribution save result", debugResult);
       if (saveError) {
         setError(`${saveError.message}. Check that RLS allows Treasurer/Admin to update finance_transactions and that migration 202606090004_contributions_management.sql has been applied.`);
         setSaving(false);
+        setOperationMessage("");
         return;
       }
-      if (editingTransaction && !savedPayment?.id) {
-        setError(`No finance_transactions row was updated for id ${editingTransaction.id}. Check the transaction id and RLS update policy.`);
+      if (editingSnapshot && !savedPayment?.id) {
+        setError(`No finance_transactions row was updated for id ${editingSnapshot.id}. Check the transaction id and RLS update policy.`);
         setSaving(false);
+        setOperationMessage("");
         return;
       }
-      if (!editingTransaction && transactionForm.memberId && savedPayment?.id) {
+      if (!editingSnapshot && formSnapshot.memberId && savedPayment?.id) {
         const response = await fetch("/api/whatsapp/payment-receipt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -690,15 +730,13 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         else if (result.skipped) setNotice("Payment saved. WhatsApp notification queued as pending because auto notifications are disabled.");
         else setNotice("Payment saved and WhatsApp receipt processed.");
       }
-      await reloadAfterWrite();
+      setNotice((current) => current || (editingSnapshot ? "Payment updated successfully." : "Payment recorded successfully."));
+      void refreshContributionData().finally(() => setOperationMessage(""));
     } else {
-      setTransactionDebug(`Contribution save debug:\n${JSON.stringify({ mode: editingTransaction ? "update" : "insert", transactionId: editingTransaction?.id ?? null, amountBeingSaved: Number(transactionForm.amount), updateResult: "local fallback only", supabaseError: null }, null, 2)}`);
+      setOperationMessage("");
+      setNotice(editingSnapshot ? "Payment updated successfully." : "Payment recorded successfully.");
     }
-    setNotice((current) => current || (editingTransaction ? "Payment updated successfully." : "Payment recorded successfully."));
-    setError("");
     setSaving(false);
-    setTransactionForm(null);
-    setEditingTransaction(null);
   }
 
   async function handleDelete(transactionId: string) {
@@ -714,16 +752,25 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     if (!window.confirm(`Delete payment ${transaction.reference || transaction.description}?`)) return;
     setNotice("");
     setError("");
+    setProcessingTransactionId(transactionId);
+    setOperationMessage("Deleting contribution...");
     const supabase = createClient();
     if (supabase) {
       const { error: deleteError } = await supabase.from("finance_transactions").delete().eq("id", transactionId);
       if (deleteError) {
         setError(`${deleteError.message}. Check that RLS allows Treasurer/Admin to delete finance_transactions.`);
+        setProcessingTransactionId("");
+        setOperationMessage("");
         return;
       }
-      await reloadAfterWrite();
+      void refreshContributionData().finally(() => {
+        setProcessingTransactionId("");
+        setOperationMessage("");
+      });
     } else {
       setTransactions((current) => current.filter((item) => item.id !== transactionId));
+      setProcessingTransactionId("");
+      setOperationMessage("");
     }
     setNotice("Payment deleted successfully.");
   }
@@ -818,7 +865,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-      {transactionDebug && <pre className="whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900">{transactionDebug}</pre>}
+      {operationMessage && <p className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-churchblue">{operationMessage}</p>}
       <div className={`rounded-lg px-4 py-3 text-sm font-medium ${canManageContributions ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{accessMessage}</div>
       {!whatsappConfigured && <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">WhatsApp integration not configured yet.</div>}
 
@@ -895,7 +942,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label="Total donations this month" value={currency.format(totalDonationsThisMonth)} />
           </div>
           {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns incomeSubAccountTotals={incomeSubAccountTotals} expenditureSubAccountTotals={expenditureSubAccountTotals} memberTotals={memberTotals} monthTotals={monthTotals} paymentMethodTotals={paymentMethodTotals} />}
-          <TransactionTable rows={reportRows} canManage={canManageContributions && activeTab === "history"} onEdit={handleEdit} onDelete={handleDelete} />
+          <TransactionTable rows={reportRows} canManage={canManageContributions && activeTab === "history"} processingTransactionId={processingTransactionId} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -935,7 +982,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search payments..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
             <Button disabled={!canManageContributions} title={canManageContributions ? "Add a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
           </div>
-          <TransactionTable rows={transactionRows} canManage={canManageContributions} onEdit={handleEdit} onDelete={handleDelete} />
+          <TransactionTable rows={transactionRows} canManage={canManageContributions} processingTransactionId={processingTransactionId} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -950,7 +997,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label={t("finance.expenditure")} value={currency.format(expenditure)} />
             <ReportCard label="Net Balance" value={currency.format(income - expenditure)} />
           </div>
-          <TransactionTable rows={filteredTransactions} canManage={false} onEdit={handleEdit} onDelete={handleDelete} />
+          <TransactionTable rows={filteredTransactions} canManage={false} processingTransactionId={processingTransactionId} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
       )}
 
@@ -1020,7 +1067,7 @@ function Breakdown({ title, rows }: { title: string; rows: [string, number][] })
   return <div className="rounded-xl border border-slate-100 p-4"><h3 className="font-bold text-navy">{title}</h3><div className="mt-3 space-y-2">{rows.length ? rows.map(([label, value]) => <div className="flex justify-between gap-3 text-sm" key={label}><span className="text-slate-600">{label}</span><span className="font-bold text-churchblue">{currency.format(value)}</span></div>) : <p className="text-sm text-slate-500">No records found.</p>}</div></div>;
 }
 
-function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transactionId: string) => void }) {
+function TransactionTable({ rows, canManage, processingTransactionId, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; processingTransactionId: string; onEdit: (transaction: Transaction) => void; onDelete: (transactionId: string) => void }) {
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
   const handleEdit = (transaction: Transaction) => {
@@ -1034,7 +1081,10 @@ function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transac
       <table className="w-full min-w-[1080px] text-left text-sm">
         <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member Name", "Sub-Account", "Method", "Account", "Entered By", "Reference", "Amount", "WhatsApp", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
         <tbody>
-          {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button type="button" variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button type="button" disabled={!canManage} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button type="button" disabled={!canManage} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
+          {rows.map((item) => {
+            const deleting = processingTransactionId === item.id;
+            return <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button type="button" variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 text-rose-600" /> {deleting ? "Deleting..." : t("button.delete")}</Button></div></td></tr>;
+          })}
           {rows.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={10}>No payments found.</td></tr>}
         </tbody>
       </table>
