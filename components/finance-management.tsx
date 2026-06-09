@@ -78,9 +78,9 @@ type WhatsAppSettings = { phoneNumberId: string; accessToken: string; defaultTem
 
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 const tabs: { id: FinanceTab; label: string }[] = [
-  { id: "dashboard", label: "Finance Dashboard" },
-  { id: "add", label: "Add Transaction" },
-  { id: "history", label: "Transaction History" },
+  { id: "dashboard", label: "Contributions Dashboard" },
+  { id: "add", label: "Record Contribution" },
+  { id: "history", label: "Contribution History" },
   { id: "statement", label: "Member Statement" },
   { id: "monthly", label: "Monthly Report" },
   { id: "quarterly", label: "Quarterly Report" },
@@ -247,6 +247,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isTreasurer, setIsTreasurer] = useState(false);
+  const [canManageContributions, setCanManageContributions] = useState(false);
   const [canManageSubAccounts, setCanManageSubAccounts] = useState(false);
   const [accountForm, setAccountForm] = useState<AccountForm | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -262,6 +263,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         setAccounts(defaultAccounts);
         setLoading(false);
         setIsTreasurer(true);
+        setCanManageContributions(true);
         setCanManageSubAccounts(true);
         return;
       }
@@ -271,6 +273,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
         const roleNames = (roleRows ?? []).map(({ role }) => role);
         setIsTreasurer(roleNames.includes("treasurer"));
+        setCanManageContributions(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
         setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
       }
 
@@ -361,12 +364,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   const income = transactions.filter(({ type }) => ["Income", "Tithe", "Offering", "Building Fund", "Mission Offering", "Donation", "Welfare", "Other", "Other Church Payment"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
   const expenditure = transactions.filter(({ type }) => ["Expenditure", "Expense"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
-  const assets = accounts.filter(({ accountType }) => accountType === "Asset").reduce((sum, item) => sum + item.currentBalance, 0);
-  const funds = accounts.filter(({ accountType }) => accountType === "Fund").reduce((sum, item) => sum + item.currentBalance, 0);
   const accessMessage = isTreasurer
     ? "Finance management access: you can add, modify, delete, search, export, generate receipts, and manage finance sub-accounts."
     : canManageSubAccounts
-      ? "Finance sub-account access: Super Admin can create, edit, activate, and deactivate income and expenditure sub-accounts. Payment records remain Treasurer-managed."
+      ? "Contribution management access: Super Admin can add, edit, search, export, generate receipts, and manage income and expenditure sub-accounts."
       : "Read-only finance access: you can view payments and reports, but only authorized finance managers can add, edit, or delete payments.";
   const filteredTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -400,8 +401,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const annualTransactions = filteredTransactions.filter((item) => item.date.startsWith(selectedYear));
   const statementRows = filteredByYearCategory.filter((item) => !statementMemberId || item.memberId === statementMemberId);
   const totalTitheThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Tithe").reduce((sum, item) => sum + item.amount, 0);
-  const totalOfferingsThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Offering").reduce((sum, item) => sum + item.amount, 0);
-  const totalDonationsThisMonth = monthlyTransactions.filter((item) => ["Thanksgiving", "Special Donations", "Other", "Donation"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
+  const totalOfferingsThisMonth = monthlyTransactions.filter((item) => ["Offering", "Sabbath Offering"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
+  const totalDonationsThisMonth = monthlyTransactions.filter((item) => ["Thanksgiving", "Special Donation", "Special Donations", "Other", "Donation"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
   const memberTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => item.memberName || "Unassigned"), [filteredByYearCategory]);
   const chartCategories = categories.filter((category) => category.group === "Income").slice(0, 4).map((category) => category.name);
   const chartTotals = chartCategories.map((category) => ({ category, value: filteredByYearCategory.filter((item) => matchesCategory(item, category)).reduce((sum, item) => sum + item.amount, 0) }));
@@ -424,7 +425,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   function openTransaction(transaction?: Transaction) {
-    if (!isTreasurer) return;
+    if (!canManageContributions) return;
     const selectedCategory = categories.find((category) => category.id === transaction?.categoryId);
     setEditingTransaction(transaction ?? null);
     setTransactionForm(transaction ? {
@@ -585,7 +586,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   async function saveTransaction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!transactionForm || !isTreasurer) return;
+    if (!transactionForm || !canManageContributions) return;
     const selectedCategory = categories.find((category) => category.id === transactionForm.categoryId);
     const validationError = required(transactionForm.accountId, "Account") || required(transactionForm.categoryId, "Finance sub-account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
     if (validationError) { setError(validationError); return; }
@@ -642,7 +643,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   async function deleteTransaction(transaction: Transaction) {
-    if (!isTreasurer) return;
+    if (!canManageContributions) return;
     if (!window.confirm(`Delete payment ${transaction.reference || transaction.description}?`)) return;
     const supabase = createClient();
     if (supabase) {
@@ -733,8 +734,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-        <PageHeading title="Church Accounting" description="Manage accounts, cash, bank, tithe, offerings, donations, welfare, expenses, and finance reports." />
-        <StatusBadge tone={isTreasurer ? "green" : canManageSubAccounts ? "blue" : "slate"}>{isTreasurer ? "Finance full access" : canManageSubAccounts ? "Sub-account access" : "Read-only access"}</StatusBadge>
+        <PageHeading title="Tithe & Offerings Management" description="Record member tithe, Sabbath offerings, building fund, thanksgiving, and special donations." />
+        <StatusBadge tone={canManageContributions ? "green" : canManageSubAccounts ? "blue" : "slate"}>{canManageContributions ? "Contribution management access" : canManageSubAccounts ? "Sub-account access" : "Read-only access"}</StatusBadge>
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-xl border border-slate-100 bg-white p-2 shadow-card">
@@ -743,15 +744,15 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-      <div className={`rounded-lg px-4 py-3 text-sm font-medium ${isTreasurer ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{accessMessage}</div>
+      <div className={`rounded-lg px-4 py-3 text-sm font-medium ${canManageContributions ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{accessMessage}</div>
       {!whatsappConfigured && <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">WhatsApp integration not configured yet.</div>}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Total Income", value: currency.format(income), icon: CircleDollarSign, tone: "bg-emerald-50 text-emerald-700" },
-          { label: "Total Expenditure", value: currency.format(expenditure), icon: BadgeEuro, tone: "bg-rose-50 text-rose-700" },
-          { label: "Cash & Bank Assets", value: currency.format(assets), icon: Landmark, tone: "bg-blue-50 text-churchblue" },
-          { label: "Fund Balances", value: currency.format(funds), icon: WalletCards, tone: "bg-amber-50 text-amber-700" },
+          { label: "Total Tithe", value: currency.format(transactions.filter((item) => contributionLabel(item) === "Tithe").reduce((sum, item) => sum + item.amount, 0)), icon: CircleDollarSign, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Total Offerings", value: currency.format(transactions.filter((item) => ["Offering", "Sabbath Offering"].includes(contributionLabel(item))).reduce((sum, item) => sum + item.amount, 0)), icon: BadgeEuro, tone: "bg-blue-50 text-churchblue" },
+          { label: "Total Donations", value: currency.format(transactions.filter((item) => ["Thanksgiving", "Special Donation", "Special Donations"].includes(contributionLabel(item))).reduce((sum, item) => sum + item.amount, 0)), icon: WalletCards, tone: "bg-amber-50 text-amber-700" },
+          { label: "Monthly Totals", value: currency.format(monthlyTransactions.reduce((sum, item) => sum + item.amount, 0)), icon: Landmark, tone: "bg-purple-50 text-purple-700" },
         ].map(({ label, value, icon: Icon, tone }) => (
           <Card className="flex items-center gap-4 p-5" key={label}>
             <div className={`rounded-lg p-3 ${tone}`}><Icon className="h-5 w-5" /></div>
@@ -789,12 +790,12 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card className="p-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="text-xl font-bold text-navy">Add Income or Expenditure</h2>
-              <p className="mt-1 text-sm text-slate-500">Record member contributions, other income, and expenditure against dynamic finance sub-accounts.</p>
+              <h2 className="text-xl font-bold text-navy">Record Tithe & Offerings</h2>
+              <p className="mt-1 text-sm text-slate-500">Record tithe, Sabbath offering, building fund, thanksgiving, and special donation against a member.</p>
             </div>
-            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a transaction" : "Access denied: Treasurer only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Transaction</Button>
+            <Button disabled={!canManageContributions} title={canManageContributions ? "Record a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Record Contribution</Button>
           </div>
-          {!isTreasurer && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Access denied: only the Treasurer can create, edit, or delete contribution records.</p>}
+          {!canManageContributions && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Access denied: only the Treasurer or Admin can create, edit, or delete contribution records.</p>}
         </Card>
       )}
 
@@ -802,8 +803,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <div>
-              <h2 className="font-bold text-navy">{activeTab === "history" ? "Transaction History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : activeTab === "quarterly" ? "Quarterly Report" : "Annual Report"}</h2>
-              <p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church income, expenditure, and giving report summaries.</p>
+              <h2 className="font-bold text-navy">{activeTab === "history" ? "Contribution History" : activeTab === "statement" ? "Member Contribution Statement" : activeTab === "monthly" ? "Monthly Report" : activeTab === "quarterly" ? "Quarterly Report" : "Annual Report"}</h2>
+              <p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church tithe, offerings, donations, and giving report summaries.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {activeTab === "statement" && <select className={fieldClass} value={statementMemberId} onChange={(event) => setStatementMemberId(event.target.value)}><option value="">All members</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name} ({member.memberNumber})</option>)}</select>}
@@ -819,7 +820,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label="Total donations this month" value={currency.format(totalDonationsThisMonth)} />
           </div>
           {(activeTab === "monthly" || activeTab === "quarterly" || activeTab === "annual") && <ReportBreakdowns incomeSubAccountTotals={incomeSubAccountTotals} expenditureSubAccountTotals={expenditureSubAccountTotals} memberTotals={memberTotals} monthTotals={monthTotals} paymentMethodTotals={paymentMethodTotals} />}
-          <TransactionTable rows={reportRows} isTreasurer={isTreasurer && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={reportRows} canManage={canManageContributions && activeTab === "history"} onEdit={openTransaction} onDelete={deleteTransaction} />
         </Card>
       )}
 
@@ -857,9 +858,9 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search payments..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a payment" : "Access denied: Treasurer only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> {t("button.addPayment")}</Button>
+            <Button disabled={!canManageContributions} title={canManageContributions ? "Add a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
           </div>
-          <TransactionTable rows={transactionRows} isTreasurer={isTreasurer} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={transactionRows} canManage={canManageContributions} onEdit={openTransaction} onDelete={deleteTransaction} />
         </Card>
       )}
 
@@ -874,7 +875,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <ReportCard label={t("finance.expenditure")} value={currency.format(expenditure)} />
             <ReportCard label="Net Balance" value={currency.format(income - expenditure)} />
           </div>
-          <TransactionTable rows={filteredTransactions} isTreasurer={false} onEdit={openTransaction} onDelete={deleteTransaction} />
+          <TransactionTable rows={filteredTransactions} canManage={false} onEdit={openTransaction} onDelete={deleteTransaction} />
         </Card>
       )}
 
@@ -944,7 +945,7 @@ function Breakdown({ title, rows }: { title: string; rows: [string, number][] })
   return <div className="rounded-xl border border-slate-100 p-4"><h3 className="font-bold text-navy">{title}</h3><div className="mt-3 space-y-2">{rows.length ? rows.map(([label, value]) => <div className="flex justify-between gap-3 text-sm" key={label}><span className="text-slate-600">{label}</span><span className="font-bold text-churchblue">{currency.format(value)}</span></div>) : <p className="text-sm text-slate-500">No records found.</p>}</div></div>;
 }
 
-function TransactionTable({ rows, isTreasurer, onEdit, onDelete }: { rows: Transaction[]; isTreasurer: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
+function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transaction[]; canManage: boolean; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
   return (
@@ -952,7 +953,7 @@ function TransactionTable({ rows, isTreasurer, onEdit, onDelete }: { rows: Trans
       <table className="w-full min-w-[1080px] text-left text-sm">
         <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Member Name", "Sub-Account", "Method", "Account", "Entered By", "Reference", "Amount", "WhatsApp", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
         <tbody>
-          {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/offerings/receipt/${item.id}`}><Button variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button disabled={!isTreasurer} title={isTreasurer ? "Edit payment" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!isTreasurer} title={isTreasurer ? "Delete payment" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
+          {rows.map((item) => <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button disabled={!canManage} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!canManage} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
           {rows.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={10}>No payments found.</td></tr>}
         </tbody>
       </table>
@@ -976,5 +977,5 @@ function TransactionModal({ accounts, categories, members, form, setForm, editin
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
   const availableCategories = categories.filter((category) => category.group === form.type && (category.isActive || category.id === form.categoryId));
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Transaction" : "Add Transaction"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceSubAccountGroup, categoryId: "", memberId: event.target.value === "Expenditure" ? "" : form.memberId })}><option>Income</option><option>Expenditure</option></select></label><label className="text-sm font-semibold text-slate-700">Finance Sub-Account<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })} required><option value="">Select sub-account</option>{availableCategories.map((category) => <option disabled={!category.isActive && category.id !== form.categoryId} value={category.id} key={category.id}>{category.name}{category.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })}><option value="">{form.type === "Income" ? "Optional. Select member for contribution income" : "Optional for expenditure"}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Reference number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Transaction"}</Button></div></form></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceSubAccountGroup, categoryId: "", memberId: event.target.value === "Expenditure" ? "" : form.memberId })}><option>Income</option><option>Expenditure</option></select></label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })} required><option value="">Select contribution type</option>{availableCategories.map((category) => <option disabled={!category.isActive && category.id !== form.categoryId} value={category.id} key={category.id}>{category.name}{category.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })}><option value="">{form.type === "Income" ? "Optional. Select member for contribution income" : "Optional for expenditure"}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer/Admin can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Receipt number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
 }

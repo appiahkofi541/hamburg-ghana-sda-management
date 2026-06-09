@@ -23,7 +23,7 @@ const nav = [
   { labelKey: "nav.departments", href: "/departments", icon: ShieldCheck },
   { labelKey: "nav.attendance", href: "/attendance", icon: ClipboardCheck },
   { labelKey: "nav.operations", href: "/operations", icon: ClipboardList },
-  { labelKey: "nav.finance", href: "/offerings", icon: CircleDollarSign },
+  { labelKey: "nav.finance", href: "/contributions", icon: CircleDollarSign },
   { labelKey: "nav.onlineGiving", href: "/giving", icon: BadgeEuro },
   { labelKey: "nav.givingHistory", href: "/giving-history", icon: ReceiptText },
   { labelKey: "nav.events", href: "/events", icon: CalendarDays },
