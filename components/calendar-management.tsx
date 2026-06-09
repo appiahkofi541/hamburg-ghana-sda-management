@@ -261,7 +261,6 @@ export function CalendarManagement() {
   }
 
   function handleRegister(event: CalendarEvent) {
-    alert("Register clicked");
     void registerForEvent(event);
   }
 
