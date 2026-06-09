@@ -72,15 +72,15 @@ function serviceTypeFor(categoryName: string) {
   return "divine_service";
 }
 
-function relatedName(value: unknown) {
+function relatedName(value: unknown): string {
   if (!value) return "";
   if (Array.isArray(value)) return relatedName(value[0]);
-  const row = value as { name?: unknown; full_name?: unknown };
-  return String(row.name ?? row.full_name ?? "");
+  const row = value as { name?: unknown; full_name?: unknown; departments?: unknown };
+  return String(row.name ?? row.full_name ?? relatedName(row.departments) ?? "");
 }
 
-function memberNumber(member: { id: string }) {
-  return member.id.slice(0, 8).toUpperCase();
+function memberNumber(member: { id: string; member_number?: string | null }) {
+  return member.member_number || member.id.slice(0, 8).toUpperCase();
 }
 
 function rowDate(row: AttendanceRecord) {
@@ -136,11 +136,11 @@ export function AttendanceManagement() {
 
     const [categoryResult, memberResult, departmentResult, entryResult] = await Promise.all([
       supabase.from("attendance_categories").select("*").order("sort_order").order("name"),
-      supabase.from("members").select("id, full_name, first_name, last_name, photo_thumbnail_url, photo_url, department_members(departments(name))").eq("status", "active").order("last_name"),
+      supabase.from("members").select("id, member_number, full_name, first_name, last_name, photo_thumbnail_url, photo_url, department_members(departments(name))").eq("status", "active").order("last_name"),
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase
         .from("attendance_entries")
-        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, full_name), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
+        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_number, full_name), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
         .order("checked_in_at", { ascending: false }),
     ]);
 
@@ -148,6 +148,10 @@ export function AttendanceManagement() {
       setError(`Attendance categories are not ready yet: ${categoryResult.error.message}. Apply migration 202606090007_attendance_module.sql in Supabase.`);
     } else if (categoryResult.data?.length) {
       setCategories(categoryResult.data.map((row) => ({ id: row.id, name: row.name, slug: row.slug, isActive: Boolean(row.is_active) })));
+    }
+
+    if (memberResult.error) {
+      setError((current) => current || `Unable to load active members for attendance: ${memberResult.error.message}`);
     }
 
     setMembers((memberResult.data ?? []).map((member) => {
