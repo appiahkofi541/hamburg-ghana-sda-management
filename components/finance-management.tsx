@@ -988,11 +988,9 @@ function TransactionTable({ rows, canManage, onEdit, onDelete }: { rows: Transac
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
   const handleEdit = (transaction: Transaction) => {
-    alert("Edit clicked");
     onEdit(transaction);
   };
   const handleDelete = (transactionId: string) => {
-    alert("Delete clicked");
     onDelete(transactionId);
   };
   return (
