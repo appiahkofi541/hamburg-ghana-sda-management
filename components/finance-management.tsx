@@ -25,7 +25,7 @@ type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "q
 type AccountStatus = "Active" | "Inactive";
 type StoredTransactionType = "Income" | "Expenditure" | "Transfer" | "Expense" | "Tithe" | "Offering" | "Thanksgiving" | "Building Fund" | "Mission Offering" | "Welfare Fund" | "Special Donations" | "Donation" | "Other" | "Other Church Payment";
 type FinanceSubAccountGroup = "Income" | "Expenditure";
-type PaymentMethod = "Cash" | "Bank Transfer" | "Card" | "Mobile Money" | "Other";
+type PaymentMethod = string;
 type Account = {
   id: string;
   name: string;
@@ -137,7 +137,7 @@ const emptyTransaction: TransactionForm = {
   notes: "",
   reference: "",
 };
-const paymentMethods: PaymentMethod[] = ["Cash", "Bank Transfer", "Card", "Mobile Money", "Other"];
+const defaultPaymentMethods: PaymentMethod[] = ["Cash", "Bank Transfer", "Card", "Mobile Money", "Other"];
 
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 
@@ -234,6 +234,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<MemberOption[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(defaultPaymentMethods);
   const [notificationLogs, setNotificationLogs] = useState<PaymentNotificationLog[]>([]);
   const [settingsForm, setSettingsForm] = useState<WhatsAppSettings>({ phoneNumberId: "", accessToken: "", defaultTemplateName: "payment_receipt", templateLanguage: "en", autoNotificationsEnabled: false, accessTokenConfigured: false });
   const [whatsappConfigured, setWhatsappConfigured] = useState(true);
@@ -249,6 +250,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [isTreasurer, setIsTreasurer] = useState(false);
   const [canManageContributions, setCanManageContributions] = useState(false);
   const [canManageSubAccounts, setCanManageSubAccounts] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
   const [accountForm, setAccountForm] = useState<AccountForm | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [categoryForm, setCategoryForm] = useState<CategoryForm | null>(null);
@@ -270,6 +272,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        setCurrentUserId(user.id);
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
         const roleNames = (roleRows ?? []).map(({ role }) => role);
         setIsTreasurer(roleNames.includes("treasurer"));
@@ -277,7 +280,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
       }
 
-      const [accountResult, categoryResult, memberResult, logResult, transactionResult] = await Promise.all([
+      const [accountResult, categoryResult, memberResult, logResult, transactionResult, paymentMethodResult] = await Promise.all([
         supabase.from("finance_accounts").select("*").order("name"),
         supabase.from("finance_categories").select("*").order("name"),
         loadActiveFinanceMembers(supabase),
@@ -286,6 +289,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
           .from("finance_transactions")
           .select("*, account:finance_accounts!finance_transactions_account_id_fkey(name), transfer_account:finance_accounts!finance_transactions_transfer_to_account_id_fkey(name), finance_categories(name), members(full_name), recorded_by_profile:profiles!finance_transactions_recorded_by_fkey(full_name)")
           .order("transaction_date", { ascending: false }),
+        supabase.from("record_settings").select("name, is_active").eq("setting_group", "payment_method").order("sort_order").order("name"),
       ]);
 
       if (accountResult.error) {
@@ -305,6 +309,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         status: labelize(row.status) as AccountStatus,
       })));
       setCategories((categoryResult.data ?? []).map((row) => ({ id: row.id, name: row.name, type: labelize(row.type) as StoredTransactionType, group: categoryGroup(row.type), description: row.description ?? "", isActive: Boolean(row.is_active) })));
+      if (!paymentMethodResult.error && paymentMethodResult.data?.length) {
+        const activeMethods = paymentMethodResult.data.filter((row) => row.is_active).map((row) => row.name);
+        if (activeMethods.length) setPaymentMethods(activeMethods);
+      }
       if (memberResult.error) setError(`Unable to load active members for finance payments: ${memberResult.error}`);
       setMembers(memberResult.members.map((row) => ({ id: row.id, memberNumber: financeMemberNumber(row), name: financeMemberName(row), phone: row.phone ?? "" })));
       const logs = (logResult.data ?? []).map((row) => ({
@@ -566,6 +574,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         type: categoryTypeForGroup(categoryForm.group),
         description: categoryForm.description || null,
         is_active: categoryForm.isActive,
+        created_by: editingCategory ? undefined : currentUserId || null,
+        updated_by: currentUserId || null,
       };
       const request = editingCategory
         ? supabase.from("finance_categories").update(payload).eq("id", editingCategory.id)
@@ -909,7 +919,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
       {accountForm && <AccountModal form={accountForm} setForm={setAccountForm} editing={editingAccount} saving={saving} onClose={() => setAccountForm(null)} onSubmit={saveAccount} />}
       {categoryForm && <CategoryModal form={categoryForm} setForm={setCategoryForm} editing={editingCategory} saving={saving} onClose={() => setCategoryForm(null)} onSubmit={saveCategory} />}
-      {transactionForm && <TransactionModal accounts={accounts} categories={categories} members={members} form={transactionForm} setForm={setTransactionForm} editing={editingTransaction} saving={saving} onClose={() => setTransactionForm(null)} onSubmit={saveTransaction} />}
+      {transactionForm && <TransactionModal accounts={accounts} categories={categories} members={members} paymentMethods={paymentMethods} form={transactionForm} setForm={setTransactionForm} editing={editingTransaction} saving={saving} onClose={() => setTransactionForm(null)} onSubmit={saveTransaction} />}
     </div>
   );
 }
@@ -972,10 +982,11 @@ function CategoryModal({ form, setForm, editing, saving, onClose, onSubmit }: { 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="w-full max-w-2xl rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="font-bold text-navy">{editing ? "Edit Sub-Account" : "Add Sub-Account"}</h2><p className="mt-1 text-xs text-slate-400">Dynamic income and expenditure categories for Hamburg Ghana SDA Church.</p></div><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close sub-account form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Sub-Account Name<input className={fieldClass} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.group} onChange={(event) => setForm({ ...form, group: event.target.value as FinanceSubAccountGroup })}><option>Income</option><option>Expenditure</option></select></label><label className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-semibold text-slate-700"><input className="accent-churchblue" type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active sub-account</label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><div className="flex justify-end gap-2 border-t border-slate-100 p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save Sub-Account"}</Button></div></form></div>;
 }
 
-function TransactionModal({ accounts, categories, members, form, setForm, editing, saving, onClose, onSubmit }: { accounts: Account[]; categories: Category[]; members: MemberOption[]; form: TransactionForm; setForm: (form: TransactionForm) => void; editing: Transaction | null; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+function TransactionModal({ accounts, categories, members, paymentMethods, form, setForm, editing, saving, onClose, onSubmit }: { accounts: Account[]; categories: Category[]; members: MemberOption[]; paymentMethods: PaymentMethod[]; form: TransactionForm; setForm: (form: TransactionForm) => void; editing: Transaction | null; saving: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
   const isTransfer = false;
   const t = useT();
   const ft = (label: string) => financeTranslationKeys[label] ? t(financeTranslationKeys[label]) : label;
   const availableCategories = categories.filter((category) => category.group === form.type && (category.isActive || category.id === form.categoryId));
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceSubAccountGroup, categoryId: "", memberId: event.target.value === "Expenditure" ? "" : form.memberId })}><option>Income</option><option>Expenditure</option></select></label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })} required><option value="">Select contribution type</option>{availableCategories.map((category) => <option disabled={!category.isActive && category.id !== form.categoryId} value={category.id} key={category.id}>{category.name}{category.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })}><option value="">{form.type === "Income" ? "Optional. Select member for contribution income" : "Optional for expenditure"}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer/Admin can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Receipt number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
+  const availablePaymentMethods = paymentMethods.includes(form.paymentMethod) ? paymentMethods : [...paymentMethods, form.paymentMethod].filter(Boolean);
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white p-5"><h2 className="font-bold text-navy">{editing ? "Edit Contribution" : "Add Contribution"}</h2><Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close payment form"><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Main Group<select className={fieldClass} value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as FinanceSubAccountGroup, categoryId: "", memberId: event.target.value === "Expenditure" ? "" : form.memberId })}><option>Income</option><option>Expenditure</option></select></label><label className="text-sm font-semibold text-slate-700">Contribution Type<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })} required><option value="">Select contribution type</option>{availableCategories.map((category) => <option disabled={!category.isActive && category.id !== form.categoryId} value={category.id} key={category.id}>{category.name}{category.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Member name<select className={fieldClass} value={form.memberId} onChange={(event) => setForm({ ...form, memberId: event.target.value })}><option value="">{form.type === "Income" ? "Optional. Select member for contribution income" : "Optional for expenditure"}</option>{members.map((member) => <option value={member.id} key={member.id}>{member.name} ({member.memberNumber})</option>)}</select>{members.length === 0 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">No active members are available. Confirm members have Active status and Treasurer/Admin can read member records.</p>}</label><label className="text-sm font-semibold text-slate-700">Amount (€)<input className={fieldClass} min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => setForm({ ...form, amount: Number(event.target.value) })} required /></label><label className="text-sm font-semibold text-slate-700">Payment Date<input className={fieldClass} type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label className="text-sm font-semibold text-slate-700">Currency<input className={fieldClass} value="EUR" readOnly /></label><label className="text-sm font-semibold text-slate-700">Payment Method<select className={fieldClass} value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value as PaymentMethod })}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Receipt number<input className={fieldClass} placeholder="Auto-generated if left blank" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Finance Account<select className={fieldClass} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })} required>{accounts.map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>{isTransfer && <label className="text-sm font-semibold text-slate-700">Transfer To<select className={fieldClass} value={form.transferToAccountId} onChange={(event) => setForm({ ...form, transferToAccountId: event.target.value })} required><option value="">Select destination</option>{accounts.filter((account) => account.id !== form.accountId).map((account) => <option value={account.id} key={account.id}>{ft(account.name)}</option>)}</select></label>}<label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>{t("button.cancel")}</Button><Button disabled={saving} type="submit"><ArrowRightLeft className="h-4 w-4" /> {saving ? "Saving..." : "Save Contribution"}</Button></div></form></div>;
 }

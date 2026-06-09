@@ -35,6 +35,8 @@ export type DepartmentRecord = {
   memberCount: number;
   isActive: boolean;
   leaderId?: string;
+  ministryGroupId?: string;
+  ministryGroupName?: string;
   createdAt?: string;
 };
 

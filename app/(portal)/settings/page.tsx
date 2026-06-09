@@ -3,6 +3,7 @@ import { BellRing, LockKeyhole, Settings2, ShieldCheck, UserRoundCog } from "luc
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeading } from "@/components/page-heading";
+import { RecordSettingsManagement } from "@/components/record-settings-management";
 
 const settings = [
   ["Church Profile", "Update church details, address, and contact information.", Settings2],
@@ -31,6 +32,7 @@ export default function SettingsPage() {
         <div><h2 className="font-bold text-navy">Account Password</h2><p className="mt-1 text-sm text-slate-500">Update the password for your signed-in account.</p></div>
         <Link href="/change-password"><Button variant="outline">Change Password</Button></Link>
       </Card>
+      <RecordSettingsManagement />
     </div>
   );
 }
