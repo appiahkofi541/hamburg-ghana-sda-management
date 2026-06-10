@@ -24,7 +24,7 @@ import type { TranslationKey } from "@/lib/i18n";
 
 type FinanceTab = "dashboard" | "add" | "history" | "statement" | "monthly" | "quarterly" | "annual" | "accounts" | "subaccounts" | "transactions" | "reports" | "cash" | "bank" | "income" | "whatsapp";
 type AccountStatus = "Active" | "Inactive";
-type StoredTransactionType = "Income" | "Expenditure" | "Transfer" | "Expense" | "Tithe" | "Offering" | "Thanksgiving" | "Building Fund" | "Mission Offering" | "Welfare Fund" | "Special Donations" | "Donation" | "Other" | "Other Church Payment";
+type StoredTransactionType = "Income" | "Expenditure" | "Transfer" | "Expense" | "Tithe" | "Offering" | "Thanksgiving" | "Building Fund" | "Mission Offering" | "Welfare Fund" | "Special Donation" | "Special Donations" | "Donation" | "Welfare" | "Other" | "Other Church Payment";
 type FinanceSubAccountGroup = "Income" | "Expenditure";
 type PaymentMethod = string;
 type Account = {
@@ -98,6 +98,7 @@ const tabs: { id: FinanceTab; label: string }[] = [
 const financeTranslationKeys: Record<string, TranslationKey> = {
   "Tithe": "finance.tithe",
   "Offering": "finance.offering",
+  "Sabbath Offering": "finance.offering",
   "Thanksgiving": "finance.thanksgiving",
   "Income": "finance.income",
   "Expenditure": "finance.expenditure",
@@ -109,10 +110,24 @@ const financeTranslationKeys: Record<string, TranslationKey> = {
   "Accounts": "finance.accounts",
   "Reports": "finance.reports",
   "Building Fund": "finance.buildingFund",
+  "Mission Offering": "finance.missionOffering",
+  "Special Donation": "finance.donation",
   "Special Donations": "finance.donation",
   "Welfare Fund": "finance.welfare",
   "Other": "finance.other",
 };
+const canonicalContributionCategories = [
+  "Tithe",
+  "Offering",
+  "Building Fund",
+  "Thanksgiving",
+  "Mission Offering",
+  "Welfare Fund",
+  "Special Donation",
+];
+const offeringCategoryNames = new Set(["Offering", "Sabbath Offering"]);
+const donationCategoryNames = new Set(["Thanksgiving", "Mission Offering", "Welfare Fund", "Special Donation", "Special Donations", "Donation", "Other", "Other Church Payment"]);
+const dashboardChartCategoryNames = ["Tithe", "Offering", "Building Fund", "Welfare Fund"];
 const defaultAccounts: Account[] = [
   { id: "cash", name: "Cash Account", accountType: "Asset", openingBalance: 0, currentBalance: 0, description: "Physical cash handled by treasury.", status: "Active" },
   { id: "bank", name: "Bank Account", accountType: "Asset", openingBalance: 0, currentBalance: 0, description: "Primary church bank account.", status: "Active" },
@@ -184,6 +199,18 @@ function contributionLabel(transaction: Transaction) {
 
 function matchesCategory(transaction: Transaction, category: string) {
   return contributionLabel(transaction) === category;
+}
+
+function isOfferingCategory(transaction: Transaction) {
+  return offeringCategoryNames.has(contributionLabel(transaction));
+}
+
+function isDonationCategory(transaction: Transaction) {
+  return donationCategoryNames.has(contributionLabel(transaction));
+}
+
+function hasContributionCategory(categories: Category[], name: string) {
+  return categories.some((category) => category.name === name);
 }
 
 function transactionQuarter(date: string) {
@@ -379,7 +406,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     ? "Finance management access: you can add, modify, delete, search, export, generate receipts, and manage finance sub-accounts."
     : canManageSubAccounts
       ? "Contribution management access: Super Admin can add, edit, search, export, generate receipts, and manage income and expenditure sub-accounts."
-      : "Read-only finance access: you can view payments and reports, but only authorized finance managers can add, edit, or delete payments.";
+      : "Read-only contribution access: members can view their own giving history; finance reports are visible only to authorized leaders.";
   const filteredTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return transactions.filter((item) => !normalized || Object.values(item).some((value) => String(value).toLowerCase().includes(normalized)));
@@ -402,7 +429,14 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     const years = [...new Set(transactions.map((item) => item.date.slice(0, 4)))].sort((left, right) => right.localeCompare(left));
     return years.length ? years : [currentYear];
   }, [currentYear, transactions]);
-  const financeCategories = useMemo(() => ["All Categories", ...new Set(transactions.map(contributionLabel).filter(Boolean))], [transactions]);
+  const financeCategories = useMemo(() => [
+    "All Categories",
+    ...new Set([
+      ...canonicalContributionCategories.filter((name) => hasContributionCategory(categories, name)),
+      ...categories.filter((category) => category.group === "Income").map((category) => category.name),
+      ...transactions.map(contributionLabel).filter(Boolean),
+    ]),
+  ], [categories, transactions]);
   const filteredByYearCategory = useMemo(() => filteredTransactions.filter((item) =>
     (!selectedYear || item.date.startsWith(selectedYear))
     && (selectedCategory === "All Categories" || matchesCategory(item, selectedCategory))
@@ -412,10 +446,13 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const annualTransactions = filteredTransactions.filter((item) => item.date.startsWith(selectedYear));
   const statementRows = filteredByYearCategory.filter((item) => !statementMemberId || item.memberId === statementMemberId);
   const totalTitheThisMonth = monthlyTransactions.filter((item) => (item.categoryName || item.type) === "Tithe").reduce((sum, item) => sum + item.amount, 0);
-  const totalOfferingsThisMonth = monthlyTransactions.filter((item) => ["Offering", "Sabbath Offering"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
-  const totalDonationsThisMonth = monthlyTransactions.filter((item) => ["Thanksgiving", "Special Donation", "Special Donations", "Other", "Donation"].includes(item.categoryName || item.type)).reduce((sum, item) => sum + item.amount, 0);
+  const totalOfferingsThisMonth = monthlyTransactions.filter(isOfferingCategory).reduce((sum, item) => sum + item.amount, 0);
+  const totalDonationsThisMonth = monthlyTransactions.filter(isDonationCategory).reduce((sum, item) => sum + item.amount, 0);
   const memberTotals = useMemo(() => groupTotals(filteredByYearCategory, (item) => item.memberName || "Unassigned"), [filteredByYearCategory]);
-  const chartCategories = categories.filter((category) => category.group === "Income").slice(0, 4).map((category) => category.name);
+  const chartCategories = [
+    ...dashboardChartCategoryNames.filter((name) => hasContributionCategory(categories, name) || transactions.some((item) => matchesCategory(item, name))),
+    ...categories.filter((category) => category.group === "Income" && !dashboardChartCategoryNames.includes(category.name)).slice(0, 4).map((category) => category.name),
+  ].slice(0, 4);
   const chartTotals = chartCategories.map((category) => ({ category, value: filteredByYearCategory.filter((item) => matchesCategory(item, category)).reduce((sum, item) => sum + item.amount, 0) }));
   const incomeSubAccountTotals = useMemo(() => groupTotals(filteredByYearCategory.filter((item) => !["Expenditure", "Expense"].includes(item.type)), contributionLabel), [filteredByYearCategory]);
   const expenditureSubAccountTotals = useMemo(() => groupTotals(filteredByYearCategory.filter((item) => ["Expenditure", "Expense"].includes(item.type)), contributionLabel), [filteredByYearCategory]);
@@ -437,7 +474,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   function openTransaction(transaction?: Transaction) {
     if (!canManageContributions) {
-      setError("Access denied: only Treasurer or Admin can edit contribution records.");
+      setError("Access denied: only Treasurer or Super Admin can edit contribution records.");
       return;
     }
     const selectedCategory = categories.find((category) => category.id === transaction?.categoryId);
@@ -658,13 +695,17 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     event.preventDefault();
     if (!transactionForm) return;
     if (!canManageContributions) {
-      setError("Access denied: only Treasurer or Admin can save contribution records.");
+      setError("Access denied: only Treasurer or Super Admin can save contribution records.");
       return;
     }
     const selectedCategory = categories.find((category) => category.id === transactionForm.categoryId);
     const validationError = required(transactionForm.accountId, "Account") || required(transactionForm.categoryId, "Finance sub-account") || required(transactionForm.paymentMethod, "Payment method") || positiveNumber(Number(transactionForm.amount), "Amount");
     if (validationError) { setError(validationError); return; }
     if (!selectedCategory) { setError("Select a valid finance sub-account."); return; }
+    if (selectedCategory.group === "Income" && !transactionForm.memberId) {
+      setError("Select a member before recording a tithe or offering contribution.");
+      return;
+    }
     const formSnapshot = { ...transactionForm };
     const editingSnapshot = editingTransaction;
     const categorySnapshot = selectedCategory;
@@ -707,7 +748,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
           .select("id, amount, reference_number, updated_at")
           .single();
       if (saveError) {
-        setError(`${saveError.message}. Check that RLS allows Treasurer/Admin to update finance_transactions and that migration 202606090004_contributions_management.sql has been applied.`);
+        setError(`${saveError.message}. Check that RLS allows Treasurer/Super Admin to update finance_transactions and that the latest Tithe & Offerings migration has been applied.`);
         setSaving(false);
         setOperationMessage("");
         return;
@@ -741,7 +782,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   async function handleDelete(transactionId: string) {
     if (!canManageContributions) {
-      setError("Access denied: only Treasurer or Admin can delete contribution records.");
+      setError("Access denied: only Treasurer or Super Admin can delete contribution records.");
       return;
     }
     const transaction = transactions.find((item) => item.id === transactionId);
@@ -758,7 +799,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
     if (supabase) {
       const { error: deleteError } = await supabase.from("finance_transactions").delete().eq("id", transactionId);
       if (deleteError) {
-        setError(`${deleteError.message}. Check that RLS allows Treasurer/Admin to delete finance_transactions.`);
+        setError(`${deleteError.message}. Check that RLS allows Treasurer/Super Admin to delete finance_transactions.`);
         setProcessingTransactionId("");
         setOperationMessage("");
         return;
@@ -872,8 +913,8 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Total Tithe", value: currency.format(transactions.filter((item) => contributionLabel(item) === "Tithe").reduce((sum, item) => sum + item.amount, 0)), icon: CircleDollarSign, tone: "bg-emerald-50 text-emerald-700" },
-          { label: "Total Offerings", value: currency.format(transactions.filter((item) => ["Offering", "Sabbath Offering"].includes(contributionLabel(item))).reduce((sum, item) => sum + item.amount, 0)), icon: BadgeEuro, tone: "bg-blue-50 text-churchblue" },
-          { label: "Total Donations", value: currency.format(transactions.filter((item) => ["Thanksgiving", "Special Donation", "Special Donations"].includes(contributionLabel(item))).reduce((sum, item) => sum + item.amount, 0)), icon: WalletCards, tone: "bg-amber-50 text-amber-700" },
+          { label: "Total Offerings", value: currency.format(transactions.filter(isOfferingCategory).reduce((sum, item) => sum + item.amount, 0)), icon: BadgeEuro, tone: "bg-blue-50 text-churchblue" },
+          { label: "Total Donations", value: currency.format(transactions.filter(isDonationCategory).reduce((sum, item) => sum + item.amount, 0)), icon: WalletCards, tone: "bg-amber-50 text-amber-700" },
           { label: "Monthly Totals", value: currency.format(monthlyTransactions.reduce((sum, item) => sum + item.amount, 0)), icon: Landmark, tone: "bg-purple-50 text-purple-700" },
         ].map(({ label, value, icon: Icon, tone }) => (
           <Card className="flex items-center gap-4 p-5" key={label}>
@@ -915,9 +956,9 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
               <h2 className="text-xl font-bold text-navy">Record Tithe & Offerings</h2>
               <p className="mt-1 text-sm text-slate-500">Record tithe, Sabbath offering, building fund, thanksgiving, and special donation against a member.</p>
             </div>
-            <Button disabled={!canManageContributions} title={canManageContributions ? "Record a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Record Contribution</Button>
+            <Button disabled={!canManageContributions} title={canManageContributions ? "Record a contribution" : "Access denied: Treasurer or Super Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Record Contribution</Button>
           </div>
-          {!canManageContributions && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Access denied: only the Treasurer or Admin can create, edit, or delete contribution records.</p>}
+          {!canManageContributions && <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Access denied: only the Treasurer or Super Admin can create, edit, or delete contribution records.</p>}
         </Card>
       )}
 
@@ -980,7 +1021,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
             <label className="flex h-10 max-w-md flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 text-slate-400" /><input className="w-full bg-transparent text-sm outline-none" placeholder="Search payments..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-            <Button disabled={!canManageContributions} title={canManageContributions ? "Add a contribution" : "Access denied: Treasurer or Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
+            <Button disabled={!canManageContributions} title={canManageContributions ? "Add a contribution" : "Access denied: Treasurer or Super Admin only"} onClick={() => openTransaction()}><Plus className="h-4 w-4" /> Add Contribution</Button>
           </div>
           <TransactionTable rows={transactionRows} canManage={canManageContributions} processingTransactionId={processingTransactionId} onEdit={handleEdit} onDelete={handleDelete} />
         </Card>
@@ -1083,7 +1124,7 @@ function TransactionTable({ rows, canManage, processingTransactionId, onEdit, on
         <tbody>
           {rows.map((item) => {
             const deleting = processingTransactionId === item.id;
-            return <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button type="button" variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Admin only"} variant="ghost" size="sm" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 text-rose-600" /> {deleting ? "Deleting..." : t("button.delete")}</Button></div></td></tr>;
+            return <tr className="border-b border-slate-100 last:border-0" key={item.id}><td className="px-5 py-4 font-semibold text-navy">{item.date}</td><td className="px-5 py-4 text-slate-600">{item.memberName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={signedAmount(item) < 0 ? "slate" : "gold"}>{ft(item.categoryName || item.type)}</StatusBadge>{item.notes && <p className="mt-1 max-w-48 truncate text-xs text-slate-400">{item.notes}</p>}</td><td className="px-5 py-4 text-slate-600">{item.paymentMethod || "Cash"}</td><td className="px-5 py-4 text-slate-600">{ft(item.accountName)}</td><td className="px-5 py-4 text-slate-600">{item.enteredBy}</td><td className="px-5 py-4 text-slate-500">{item.reference || "-"}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(item.amount)}</td><td className="px-5 py-4"><StatusBadge tone={item.whatsappStatus === "Sent" ? "green" : item.whatsappStatus === "Failed" ? "red" : item.whatsappStatus === "Pending" ? "gold" : "slate"}>{item.whatsappStatus}</StatusBadge>{item.whatsappError && <p className="mt-1 max-w-44 truncate text-xs text-rose-600">{item.whatsappError}</p>}</td><td className="px-5 py-4"><div className="flex gap-1"><Link href={`/contributions/receipt/${item.id}`}><Button type="button" variant="ghost" size="sm">{t("button.receipt")}</Button></Link><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Edit contribution" : "Access denied: Treasurer or Super Admin only"} variant="ghost" size="sm" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button type="button" disabled={!canManage || Boolean(processingTransactionId)} title={canManage ? "Delete contribution" : "Access denied: Treasurer or Super Admin only"} variant="ghost" size="sm" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4 text-rose-600" /> {deleting ? "Deleting..." : t("button.delete")}</Button></div></td></tr>;
           })}
           {rows.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={10}>No payments found.</td></tr>}
         </tbody>

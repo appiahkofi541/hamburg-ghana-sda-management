@@ -4,12 +4,12 @@ export const ATTENDANCE_SERVICES = [
 ] as const;
 
 export const FINANCE_FUNDS = [
-  "Tithe", "Sabbath Offering", "Building Fund", "Mission Offering",
-  "Thanksgiving Offering", "Special Donation",
+  "Tithe", "Offering", "Building Fund", "Thanksgiving",
+  "Mission Offering", "Welfare Fund", "Special Donation",
 ] as const;
 
 export const FINANCE_ACCOUNT_TYPES = ["Income", "Expense", "Asset", "Liability", "Fund"] as const;
-export const FINANCE_TRANSACTION_TYPES = ["Tithe", "Offering", "Thanksgiving", "Building Fund", "Welfare Fund", "Special Donations", "Other"] as const;
+export const FINANCE_TRANSACTION_TYPES = ["Tithe", "Offering", "Building Fund", "Thanksgiving", "Mission Offering", "Welfare Fund", "Special Donation", "Other"] as const;
 export const FINANCE_REPORTS = [
   "Income and Expenditure",
   "Cash Book",
