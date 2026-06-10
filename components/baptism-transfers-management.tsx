@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BadgeCheck, BookOpenCheck, CheckCircle2, Church, Download, FileSpreadsheet, Pencil, Plus, RefreshCw, Search, Trash2, Upload, UserCheck, Users, X,
 } from "lucide-react";
@@ -96,6 +97,7 @@ const modules: ModuleConfig[] = [
       { key: "instructor", label: "Instructor" },
       { key: "start_date", label: "Start Date", type: "date" },
       { key: "end_date", label: "End Date", type: "date" },
+      { key: "meeting_day", label: "Meeting Day" },
       { key: "lessons_completed", label: "Lessons Completed", type: "number" },
       { key: "candidate_ids", label: "Candidates in Class", type: "candidate_multi" },
       { key: "notes", label: "Notes", type: "textarea" },
@@ -105,6 +107,7 @@ const modules: ModuleConfig[] = [
       { key: "instructor", label: "Instructor" },
       { key: "start_date", label: "Start Date" },
       { key: "end_date", label: "End Date" },
+      { key: "meeting_day", label: "Meeting Day" },
       { key: "lessons_completed", label: "Lessons" },
       { key: "candidate_ids", label: "Candidates" },
     ],
@@ -280,8 +283,8 @@ function safeFileName(file: File) {
   return file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
-export function BaptismTransfersManagement() {
-  const [activeKey, setActiveKey] = useState<ModuleKey>("candidates");
+export function BaptismTransfersManagement({ classesOnly = false, initialActiveKey = "candidates" }: { classesOnly?: boolean; initialActiveKey?: ModuleKey } = {}) {
+  const [activeKey, setActiveKey] = useState<ModuleKey>(classesOnly ? "classes" : initialActiveKey);
   const [records, setRecords] = useState<Record<ModuleKey, ModuleRecord[]>>({ candidates: [], classes: [], baptisms: [], transferIn: [], transferOut: [], profession: [] });
   const [candidates, setCandidates] = useState<CandidateOption[]>([]);
   const [query, setQuery] = useState("");
@@ -299,6 +302,7 @@ export function BaptismTransfersManagement() {
   const [canManage, setCanManage] = useState(!createClient());
 
   const activeModule = modules.find((module) => module.key === activeKey) ?? modules[0];
+  const visibleModules = classesOnly ? modules.filter((module) => module.key === "classes") : modules;
   const activeRecords = useMemo(() => records[activeKey] ?? [], [activeKey, records]);
   const activeStatusOptions = activeModule.fields.find((field) => field.key === "status")?.options ?? [];
 
@@ -669,8 +673,8 @@ export function BaptismTransfersManagement() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-        <PageHeading title="Baptism & Membership Transfers" description="Manage baptism candidates, classes, official baptism records, membership transfers, professions of faith, and growth reports." />
-        {canManage && <Button type="button" onClick={() => openForm()}><Plus className="h-4 w-4" /> Add {activeModule.title}</Button>}
+        <PageHeading title={classesOnly ? "Baptism Classes" : "Baptism & Membership Transfers"} description={classesOnly ? "Create baptism classes, assign instructors and candidates, record attendance, and track lesson progress." : "Manage baptism candidates, classes, official baptism records, membership transfers, professions of faith, and growth reports."} />
+        {canManage && <Button type="button" onClick={() => openForm()}><Plus className="h-4 w-4" /> {classesOnly ? "Create Class" : `Add ${activeModule.title}`}</Button>}
       </div>
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue"><span>{notice}</span><button type="button" aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
@@ -679,13 +683,16 @@ export function BaptismTransfersManagement() {
         {summary.map(({ label, value, icon: Icon }) => <Card className="flex items-center gap-4 p-5" key={label}><div className="rounded-lg bg-blue-50 p-3 text-churchblue"><Icon className="h-5 w-5" /></div><div><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold text-navy">{value}</p></div></Card>)}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        {modules.map((module) => {
+      {!classesOnly && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        {visibleModules.map((module) => {
           const Icon = module.icon;
           const active = activeKey === module.key;
-          return <button className={`rounded-xl border p-4 text-left transition hover:border-churchblue/40 hover:shadow-card ${active ? "border-churchblue bg-blue-50" : "border-slate-100 bg-white"}`} key={module.key} type="button" onClick={() => { setActiveKey(module.key); setStatus("All Statuses"); }}><Icon className="h-5 w-5 text-churchblue" /><div className="mt-3 flex items-center justify-between gap-2"><h2 className="text-sm font-bold text-navy">{module.title}</h2><StatusBadge tone="blue">{records[module.key].length}</StatusBadge></div><p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{module.description}</p></button>;
+          const content = <><Icon className="h-5 w-5 text-churchblue" /><div className="mt-3 flex items-center justify-between gap-2"><h2 className="text-sm font-bold text-navy">{module.title}</h2><StatusBadge tone="blue">{records[module.key].length}</StatusBadge></div><p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{module.description}</p>{module.key === "classes" && <span className="mt-3 inline-flex text-xs font-bold text-churchblue">Open class management</span>}</>;
+          const className = `rounded-xl border p-4 text-left transition hover:border-churchblue/40 hover:shadow-card ${active ? "border-churchblue bg-blue-50" : "border-slate-100 bg-white"}`;
+          if (module.key === "classes") return <Link className={className} href="/baptism-transfers/classes" key={module.key}>{content}</Link>;
+          return <button className={className} key={module.key} type="button" onClick={() => { setActiveKey(module.key); setStatus("All Statuses"); }}>{content}</button>;
         })}
-      </section>
+      </section>}
 
       <Card>
         <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 xl:flex-row xl:items-center">
@@ -695,7 +702,7 @@ export function BaptismTransfersManagement() {
             {activeStatusOptions.length > 0 && <select className={fieldClass.replace("mt-1.5 ", "")} value={status} onChange={(event) => setStatus(event.target.value)}><option>All Statuses</option>{activeStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>}
             <Button type="button" variant="outline" onClick={exportPdf}><Download className="h-4 w-4" /> PDF</Button>
             <Button type="button" variant="outline" onClick={exportExcel}><FileSpreadsheet className="h-4 w-4" /> Excel</Button>
-            {canManage && <Button type="button" onClick={() => openForm()}><Plus className="h-4 w-4" /> Create</Button>}
+            {canManage && <Button type="button" onClick={() => openForm()}><Plus className="h-4 w-4" /> {classesOnly ? "Create Class" : "Create"}</Button>}
           </div>
         </div>
         <div className="overflow-x-auto">
