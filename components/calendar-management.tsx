@@ -293,22 +293,33 @@ export function CalendarManagement() {
   }
 
   async function registerForEvent(event: CalendarEvent) {
-    if (!memberId) { setNotice("Member profile required"); return; }
+    console.log("Event register clicked", { eventId: event.id, memberId, eventTitle: event.title });
+    if (!memberId) {
+      console.warn("Event registration blocked: missing member profile", { eventId: event.id, memberId });
+      setNotice("Member profile required");
+      return;
+    }
     const existingRegistration = registrations.find((item) => item.eventId === event.id);
     if (existingRegistration?.status === "Registered" || existingRegistration?.status === "Attended") {
+      console.log("Event registration skipped: already registered", { eventId: event.id, memberId, existingRegistration });
       setNotice("You have registered for this event.");
       return;
     }
     if (!isUuid(event.id) || !isUuid(memberId)) {
+      console.error("Event registration blocked: invalid UUID", { eventId: event.id, memberId });
       setNotice("Unable to register: this event or member profile is not using a valid Supabase UUID. Please refresh after events are loaded from Supabase.");
       return;
     }
     const supabase = createClient();
-    if (!supabase) { setNotice("Unable to register: Supabase is not configured."); return; }
+    if (!supabase) {
+      console.error("Event registration blocked: Supabase client is not configured", { eventId: event.id, memberId });
+      setNotice("Unable to register: Supabase is not configured.");
+      return;
+    }
     setRegisteringEventId(event.id);
     setNotice("Registering...");
     try {
-      const { data, error } = await supabase.from("event_registrations").upsert({
+      const registrationPayload = {
         event_id: event.id,
         member_id: memberId,
         status: "registered",
@@ -316,14 +327,22 @@ export function CalendarManagement() {
         registration_date: new Date().toISOString(),
         attendance_confirmed: false,
         confirmed_at: null,
-      }, { onConflict: "event_id,member_id" }).select().single();
-      if (error) { setNotice(`Unable to register: ${error.message}`); return; }
+      };
+      console.log("Saving event registration", registrationPayload);
+      const { data, error } = await supabase.from("event_registrations").upsert(registrationPayload, { onConflict: "event_id,member_id" }).select().single();
+      console.log("Event registration Supabase result", { data, error });
+      if (error) {
+        console.error("Event registration Supabase error", error);
+        setNotice(`Unable to register: ${error.message}`);
+        return;
+      }
       setRegistrations((current) => {
         const next = { id: data.id, eventId: data.event_id, status: registrationStatus(data.status ?? data.registration_status), confirmed: Boolean(data.attendance_confirmed) };
         return current.some((item) => item.eventId === event.id) ? current.map((item) => item.eventId === event.id ? next : item) : [...current, next];
       });
       setNotice("You have registered for this event.");
     } catch (error) {
+      console.error("Event registration exception", error);
       setNotice(`Unable to register: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setRegisteringEventId("");
