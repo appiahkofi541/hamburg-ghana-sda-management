@@ -285,6 +285,11 @@ function safeFileName(file: File) {
   return file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
+function isCompletedClass(record: ModuleRecord) {
+  const today = new Date().toISOString().slice(0, 10);
+  return Boolean(record.data.end_date && record.data.end_date <= today) || Number(record.data.lessons_completed || 0) > 0;
+}
+
 export function BaptismTransfersManagement({ classesOnly = false, initialActiveKey = "candidates" }: { classesOnly?: boolean; initialActiveKey?: ModuleKey } = {}) {
   const [activeKey, setActiveKey] = useState<ModuleKey>(classesOnly ? "classes" : initialActiveKey);
   const [records, setRecords] = useState<Record<ModuleKey, ModuleRecord[]>>({ candidates: [], classes: [], baptisms: [], transferIn: [], transferOut: [], profession: [] });
@@ -311,6 +316,10 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
   const visibleModules = classesOnly ? modules.filter((module) => module.key === "classes") : modules;
   const activeRecords = useMemo(() => records[activeKey] ?? [], [activeKey, records]);
   const activeStatusOptions = activeModule.fields.find((field) => field.key === "status")?.options ?? [];
+  const baptismCandidateOptions = useMemo(() => {
+    const eligibleIds = new Set(records.classes.filter(isCompletedClass).flatMap((record) => classAssignments[record.id] ?? selectedIds(record.data.candidate_ids ?? "")));
+    return eligibleIds.size ? candidates.filter((candidate) => eligibleIds.has(candidate.id)) : candidates.filter((candidate) => ["ready_for_baptism", "baptized"].includes(records.candidates.find((record) => record.id === candidate.id)?.data.status ?? ""));
+  }, [candidates, classAssignments, records.candidates, records.classes]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -541,6 +550,20 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
     void loadRecords();
   }
 
+  async function updateCandidateStatus(record: ModuleRecord, nextStatus: "ready_for_baptism" | "baptized") {
+    if (!canManage || record.module !== "candidates") return;
+    const supabase = createClient();
+    if (!supabase) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error: updateError } = await supabase.from("baptism_candidates").update({ status: nextStatus, updated_by: user?.id ?? null }).eq("id", record.id);
+    if (updateError) {
+      setError(`Unable to update candidate status: ${updateError.message}`);
+      return;
+    }
+    setNotice(`${record.data.full_name} marked ${labelFor(nextStatus)}.`);
+    await loadRecords();
+  }
+
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManage) return;
@@ -735,7 +758,7 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
             <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{activeModule.columns.map((column) => <th className="px-5 py-3.5 font-semibold" key={column.key}>{column.label}</th>)}<th className="px-5 py-3.5 font-semibold">Actions</th></tr></thead>
             <tbody>
               {loading && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={activeModule.columns.length + 1}>Loading baptism and transfer records...</td></tr>}
-              {!loading && filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={record.id}>{activeModule.columns.map((column) => <td className="px-5 py-4 text-slate-600" key={column.key}>{["status", "approval_status"].includes(column.key) ? <StatusBadge tone={statusTone(record.data[column.key])}>{labelFor(record.data[column.key])}</StatusBadge> : displayValue(record.data, column.key) || "-"}</td>)}<td className="px-5 py-4"><div className="flex flex-wrap gap-1">{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Edit record" onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button>}{canManage && activeKey === "classes" && <Button type="button" size="sm" variant="outline" onClick={() => openClassAttendance(record)}><CheckCircle2 className="h-4 w-4" /> Attendance</Button>}{canManage && ["transferIn", "transferOut"].includes(activeKey) && record.data.approval_status !== "approved" && <Button type="button" size="sm" variant="outline" onClick={() => approveTransfer(record)}><CheckCircle2 className="h-4 w-4" /> Approve</Button>}{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Delete record" onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div></td></tr>)}
+              {!loading && filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={record.id}>{activeModule.columns.map((column) => <td className="px-5 py-4 text-slate-600" key={column.key}>{["status", "approval_status"].includes(column.key) ? <StatusBadge tone={statusTone(record.data[column.key])}>{labelFor(record.data[column.key])}</StatusBadge> : displayValue(record.data, column.key) || "-"}</td>)}<td className="px-5 py-4"><div className="flex flex-wrap gap-1">{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Edit record" onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button>}{canManage && activeKey === "candidates" && record.data.status === "studying" && <Button type="button" size="sm" variant="outline" onClick={() => updateCandidateStatus(record, "ready_for_baptism")}><CheckCircle2 className="h-4 w-4" /> Mark Ready</Button>}{canManage && activeKey === "classes" && <Button type="button" size="sm" variant="outline" onClick={() => openClassAttendance(record)}><CheckCircle2 className="h-4 w-4" /> Attendance</Button>}{canManage && ["transferIn", "transferOut"].includes(activeKey) && record.data.approval_status !== "approved" && <Button type="button" size="sm" variant="outline" onClick={() => approveTransfer(record)}><CheckCircle2 className="h-4 w-4" /> Approve</Button>}{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Delete record" onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div></td></tr>)}
               {!loading && filtered.length === 0 && <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={activeModule.columns.length + 1}>No {activeModule.title.toLowerCase()} records found.</td></tr>}
             </tbody>
           </table>
@@ -749,7 +772,7 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
         <ReportCard title="Membership Growth Reports" rows={[["Baptisms this year", summary[2].value], ["Professions of faith", records.profession.length], ["Completed transfers in", records.transferIn.filter((record) => ["received", "completed"].includes(record.data.status)).length]]} />
       </section>
 
-      {showForm && <RecordModal candidates={candidates} config={activeModule} error={error} form={form} saving={saving} setForm={setForm} setTransferFile={setTransferFile} editing={editing} onClose={closeForm} onSubmit={save} />}
+      {showForm && <RecordModal candidates={activeModule.key === "baptisms" ? baptismCandidateOptions : candidates} config={activeModule} error={error} form={form} saving={saving} setForm={setForm} setTransferFile={setTransferFile} editing={editing} onClose={closeForm} onSubmit={save} />}
       {attendanceClass && <ClassAttendanceModal attendanceClass={attendanceClass} candidateIds={classAssignments[attendanceClass.id] ?? selectedIds(attendanceClass.data.candidate_ids ?? "")} candidates={candidates} date={attendanceDate} notes={attendanceNotes} saving={saving} statuses={attendanceStatuses} setDate={setAttendanceDate} setNotes={setAttendanceNotes} setStatuses={setAttendanceStatuses} onClose={() => setAttendanceClass(null)} onSubmit={saveClassAttendance} />}
     </div>
   );
