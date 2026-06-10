@@ -32,6 +32,7 @@ type CalendarEvent = {
   departmentName: string;
 };
 type EventRegistration = { id: string; eventId: string; status: "Registered" | "Attended" | "Cancelled"; confirmed: boolean };
+type SupabaseBrowserClient = NonNullable<ReturnType<typeof createClient>>;
 
 const defaultEventCategories: EventCategoryOption[] = [
   { name: "Sabbath Program", tone: "bg-blue-50 text-churchblue", icon: CalendarDays },
@@ -69,6 +70,8 @@ function registrationStatus(value: string | null): EventRegistration["status"] {
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
+
+const eventRegistrationColumnNote = "Database columns: public.event_registrations.event_id uses public.events.id; public.event_registrations.member_id uses public.members.id.";
 
 function eventPayload(event: Omit<CalendarEvent, "id">, userId: string, editing: boolean) {
   return {
@@ -293,12 +296,31 @@ export function CalendarManagement() {
     setNotice("Event deleted.");
   }
 
+  async function resolveEventRegistrationId(event: CalendarEvent, supabase: SupabaseBrowserClient) {
+    if (isUuid(event.id)) return event.id;
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, title, starts_at")
+      .eq("title", event.title)
+      .order("starts_at")
+      .limit(1)
+      .maybeSingle();
+    console.log("Resolved visible event to Supabase event id", { visibleEventId: event.id, title: event.title, data, error });
+    if (error) throw new Error(`Unable to resolve public.events.id for "${event.title}": ${error.message}`);
+    if (!data?.id || !isUuid(data.id)) {
+      throw new Error(`Unable to resolve public.events.id for "${event.title}". Current visible event id is "${event.id}". ${eventRegistrationColumnNote}`);
+    }
+    setRecords((current) => current.map((item) => item.id === event.id ? { ...item, id: data.id } : item));
+    return data.id;
+  }
+
   async function registerForEvent(event: CalendarEvent) {
     console.log("Event register clicked", { eventId: event.id, memberId, eventTitle: event.title });
     if (!memberId) {
       console.warn("Event registration blocked: missing member profile", { eventId: event.id, memberId });
-      setRegistrationFeedback("Member profile required");
-      setNotice("Member profile required");
+      const message = `Member profile required. ${eventRegistrationColumnNote}`;
+      setRegistrationFeedback(message);
+      setNotice(message);
       return;
     }
     const existingRegistration = registrations.find((item) => item.eventId === event.id);
@@ -308,10 +330,11 @@ export function CalendarManagement() {
       setNotice("You have registered for this event.");
       return;
     }
-    if (!isUuid(event.id) || !isUuid(memberId)) {
-      console.error("Event registration blocked: invalid UUID", { eventId: event.id, memberId });
-      setRegistrationFeedback("Unable to register: this event or member profile is not using a valid Supabase UUID.");
-      setNotice("Unable to register: this event or member profile is not using a valid Supabase UUID. Please refresh after events are loaded from Supabase.");
+    if (!isUuid(memberId)) {
+      const message = `Unable to register: public.event_registrations.member_id must be public.members.id, but the current member value is "${memberId}". ${eventRegistrationColumnNote}`;
+      console.error("Event registration blocked: invalid members.id UUID", { eventId: event.id, memberId });
+      setRegistrationFeedback(message);
+      setNotice(message);
       return;
     }
     const supabase = createClient();
@@ -325,8 +348,16 @@ export function CalendarManagement() {
     setRegistrationFeedback("Registering...");
     setNotice("Registering...");
     try {
+      const resolvedEventId = await resolveEventRegistrationId(event, supabase);
+      if (!isUuid(resolvedEventId)) {
+        const message = `Unable to register: public.event_registrations.event_id must be public.events.id, but the current event value is "${resolvedEventId}". ${eventRegistrationColumnNote}`;
+        console.error("Event registration blocked: invalid events.id UUID", { visibleEventId: event.id, resolvedEventId, memberId });
+        setRegistrationFeedback(message);
+        setNotice(message);
+        return;
+      }
       const registrationPayload = {
-        event_id: event.id,
+        event_id: resolvedEventId,
         member_id: memberId,
         status: "registered",
         registration_status: "registered",
@@ -345,7 +376,7 @@ export function CalendarManagement() {
       }
       setRegistrations((current) => {
         const next = { id: data.id, eventId: data.event_id, status: registrationStatus(data.status ?? data.registration_status), confirmed: Boolean(data.attendance_confirmed) };
-        return current.some((item) => item.eventId === event.id) ? current.map((item) => item.eventId === event.id ? next : item) : [...current, next];
+        return current.some((item) => item.eventId === event.id || item.eventId === data.event_id) ? current.map((item) => item.eventId === event.id || item.eventId === data.event_id ? next : item) : [...current, next];
       });
       setRegistrationFeedback("You have registered for this event.");
       setNotice("You have registered for this event.");
