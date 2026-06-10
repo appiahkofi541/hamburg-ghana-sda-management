@@ -125,7 +125,7 @@ export function CalendarManagement() {
           setMemberLookupMessage("");
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
           const roleNames = normalizeRoles((roleRows ?? []).map(({ role }) => role));
-          setCanManage(roleNames.includes("super_admin"));
+          setCanManage(roleNames.some((role) => role === "super_admin" || role === "secretary"));
           const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
           const loginEmail = user.email ?? profile?.email ?? "";
           const { data: profileMember } = await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle();
@@ -213,7 +213,7 @@ export function CalendarManagement() {
 
   function openForm(event?: CalendarEvent) {
     if (!canManage) {
-      setNotice("Access denied: only Super Admin/Admin can create, edit, or delete church events.");
+      setNotice("Access denied: only Super Admin/Admin or Secretary can create, edit, or delete church events.");
       return;
     }
     setEditing(event ?? null);
@@ -224,7 +224,7 @@ export function CalendarManagement() {
   async function saveEvent(submitEvent: React.FormEvent<HTMLFormElement>) {
     submitEvent.preventDefault();
     if (!canManage) {
-      setNotice("Access denied: only Super Admin/Admin can save church events.");
+      setNotice("Access denied: only Super Admin/Admin or Secretary can save church events.");
       return;
     }
     const supabase = createClient();
@@ -242,7 +242,7 @@ export function CalendarManagement() {
 
   async function deleteEvent(event: CalendarEvent) {
     if (!canManage) {
-      setNotice("Access denied: only Super Admin/Admin can delete church events.");
+      setNotice("Access denied: only Super Admin/Admin or Secretary can delete church events.");
       return;
     }
     if (!window.confirm(`Delete ${event.title}? This cannot be undone.`)) return;
