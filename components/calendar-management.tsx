@@ -81,9 +81,7 @@ function eventPayload(event: Omit<CalendarEvent, "id">, userId: string, editing:
     recurrence: event.recurrence.toLowerCase(),
     recurrence_until: event.recurrenceUntil || null,
     status: event.status.toLowerCase(),
-    department_id: event.departmentId || null,
     created_by: editing ? undefined : userId || null,
-    updated_by: userId || null,
   };
 }
 
