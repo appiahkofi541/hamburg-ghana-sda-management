@@ -305,7 +305,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         setCurrentUserId(user.id);
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
         const roleNames = normalizeRoles((roleRows ?? []).map(({ role }) => role));
-        setIsTreasurer(roleNames.includes("treasurer"));
+        setIsTreasurer(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
         setCanManageContributions(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
         setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
       }
@@ -403,7 +403,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const income = transactions.filter(({ type }) => ["Income", "Tithe", "Offering", "Building Fund", "Mission Offering", "Donation", "Welfare", "Other", "Other Church Payment"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
   const expenditure = transactions.filter(({ type }) => ["Expenditure", "Expense"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
   const accessMessage = isTreasurer
-    ? "Finance management access: you can add, modify, delete, search, export, generate receipts, and manage finance sub-accounts."
+    ? "Finance management access: Super Admin and Treasurer can add, modify, delete, search, export, generate receipts, and manage finance accounts."
     : canManageSubAccounts
       ? "Contribution management access: Super Admin can add, edit, search, export, generate receipts, and manage income and expenditure sub-accounts."
       : "Read-only contribution access: members can view their own giving history; finance reports are visible only to authorized leaders.";
@@ -461,7 +461,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const reportRows = activeTab === "monthly" ? monthlyTransactions : activeTab === "quarterly" ? quarterlyTransactions : activeTab === "annual" ? annualTransactions : activeTab === "statement" ? statementRows : filteredByYearCategory;
 
   function openAccount(account?: Account) {
-    if (!isTreasurer) return;
+    if (!isTreasurer) {
+      setError("Access denied: only Treasurer or Super Admin can manage finance accounts.");
+      return;
+    }
     setEditingAccount(account ?? null);
     setAccountForm(account ? {
       name: account.name,
@@ -616,7 +619,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   async function saveAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!accountForm || !isTreasurer) return;
+    if (!accountForm || !isTreasurer) {
+      setError("Access denied: only Treasurer or Super Admin can save finance accounts.");
+      return;
+    }
     const validationError = required(accountForm.name, "Account name");
     if (validationError) { setError(validationError); return; }
     setSaving(true);
@@ -645,7 +651,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   async function deleteAccount(account: Account) {
-    if (!isTreasurer) return;
+    if (!isTreasurer) {
+      setError("Access denied: only Treasurer or Super Admin can delete finance accounts.");
+      return;
+    }
     if (!window.confirm(`Delete ${account.name}? Accounts with transactions cannot be removed.`)) return;
     const supabase = createClient();
     if (supabase) {
@@ -840,7 +849,10 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   }
 
   async function retryNotification(paymentId: string) {
-    if (!isTreasurer) return;
+    if (!isTreasurer) {
+      setError("Access denied: only Treasurer or Super Admin can retry WhatsApp payment notifications.");
+      return;
+    }
     const response = await fetch("/api/whatsapp/payment-receipt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1002,15 +1014,15 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       {(activeTab === "accounts" || activeTab === "cash" || activeTab === "bank") && (
         <Card>
           <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 md:flex-row md:items-center">
-            <div><h2 className="font-bold text-navy">{activeTab === "cash" ? "Cash Account Page" : activeTab === "bank" ? "Bank Account Page" : "Accounts"}</h2><p className="mt-1 text-xs text-slate-400">Only Treasurer can create, edit, or delete accounts.</p></div>
-            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a finance account" : "Access denied: Treasurer only"} onClick={() => openAccount()}><Plus className="h-4 w-4" /> Add New Account</Button>
+            <div><h2 className="font-bold text-navy">{activeTab === "cash" ? "Cash Account Page" : activeTab === "bank" ? "Bank Account Page" : "Accounts"}</h2><p className="mt-1 text-xs text-slate-400">Treasurer and Super Admin can create, edit, or delete accounts.</p></div>
+            <Button disabled={!isTreasurer} title={isTreasurer ? "Add a finance account" : "Access denied: Treasurer or Super Admin only"} onClick={() => openAccount()}><Plus className="h-4 w-4" /> Add New Account</Button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[920px] text-left text-sm">
               <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Account", "Type", "Opening Balance", "Current Balance", "Status", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
               <tbody>
                 {loading && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>Loading finance accounts...</td></tr>}
-                {accountRows.map((account) => <tr className="border-b border-slate-100 last:border-0" key={account.id}><td className="px-5 py-4"><p className="font-bold text-navy">{ft(account.name)}</p><p className="mt-1 text-xs text-slate-400">{account.description}</p></td><td className="px-5 py-4"><StatusBadge tone="blue">{ft(account.accountType)}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{currency.format(account.openingBalance)}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(account.currentBalance)}</td><td className="px-5 py-4"><StatusBadge tone={account.status === "Active" ? "green" : "slate"}>{account.status}</StatusBadge></td><td className="px-5 py-4"><div className="flex gap-1"><Button disabled={!isTreasurer} title={isTreasurer ? "Edit account" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => openAccount(account)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!isTreasurer} title={isTreasurer ? "Delete account" : "Access denied: Treasurer only"} variant="ghost" size="sm" onClick={() => deleteAccount(account)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
+                {accountRows.map((account) => <tr className="border-b border-slate-100 last:border-0" key={account.id}><td className="px-5 py-4"><p className="font-bold text-navy">{ft(account.name)}</p><p className="mt-1 text-xs text-slate-400">{account.description}</p></td><td className="px-5 py-4"><StatusBadge tone="blue">{ft(account.accountType)}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{currency.format(account.openingBalance)}</td><td className="px-5 py-4 font-bold text-navy">{currency.format(account.currentBalance)}</td><td className="px-5 py-4"><StatusBadge tone={account.status === "Active" ? "green" : "slate"}>{account.status}</StatusBadge></td><td className="px-5 py-4"><div className="flex gap-1"><Button disabled={!isTreasurer} title={isTreasurer ? "Edit account" : "Access denied: Treasurer or Super Admin only"} variant="ghost" size="sm" onClick={() => openAccount(account)}><Pencil className="h-4 w-4" /> {t("button.edit")}</Button><Button disabled={!isTreasurer} title={isTreasurer ? "Delete account" : "Access denied: Treasurer or Super Admin only"} variant="ghost" size="sm" onClick={() => deleteAccount(account)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("button.delete")}</Button></div></td></tr>)}
               </tbody>
             </table>
           </div>
@@ -1064,7 +1076,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
             <CardHeader><div><h2 className="font-bold text-navy">Payment Notification Logs</h2><p className="mt-1 text-xs text-slate-400">Visible to Super Admin and Treasurer. Retry is available to authorized finance managers.</p></div><StatusBadge tone="blue">{notificationLogs.length} logs</StatusBadge></CardHeader>
             <CardContent className="space-y-3">
               {notificationLogs.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No WhatsApp payment notifications have been logged.</p>}
-              {notificationLogs.map((log) => <div className="rounded-lg border border-slate-100 p-3" key={log.id}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><p className="text-sm font-bold text-navy">{log.phoneNumber}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500">{log.message}</p>{log.errorMessage && <p className="mt-1 text-xs text-rose-600">{log.errorMessage}</p>}</div><div className="flex items-center gap-2"><StatusBadge tone={log.status === "Sent" ? "green" : log.status === "Failed" ? "red" : "gold"}>{log.status}</StatusBadge><Button disabled={!isTreasurer || log.status === "Sent"} size="sm" variant="outline" title={isTreasurer ? "Retry notification" : "Access denied: Treasurer only"} onClick={() => retryNotification(log.paymentId)}><RotateCw className="h-4 w-4" /> Retry</Button></div></div></div>)}
+              {notificationLogs.map((log) => <div className="rounded-lg border border-slate-100 p-3" key={log.id}><div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center"><div><p className="text-sm font-bold text-navy">{log.phoneNumber}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500">{log.message}</p>{log.errorMessage && <p className="mt-1 text-xs text-rose-600">{log.errorMessage}</p>}</div><div className="flex items-center gap-2"><StatusBadge tone={log.status === "Sent" ? "green" : log.status === "Failed" ? "red" : "gold"}>{log.status}</StatusBadge><Button disabled={!isTreasurer || log.status === "Sent"} size="sm" variant="outline" title={isTreasurer ? "Retry notification" : "Access denied: Treasurer or Super Admin only"} onClick={() => retryNotification(log.paymentId)}><RotateCw className="h-4 w-4" /> Retry</Button></div></div></div>)}
             </CardContent>
           </Card>
         </section>
