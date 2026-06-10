@@ -30,6 +30,7 @@ type ModuleRecord = { id: string; module: ModuleKey; data: Record<string, string
 type CandidateOption = { id: string; label: string; name: string };
 type ClassAssignment = Record<string, string[]>;
 type ClassAttendanceCount = Record<string, number>;
+type ClassAttendanceStatus = "present" | "absent" | "late" | "excused";
 
 const candidateStatuses = [
   { value: "studying", label: "Studying" },
@@ -56,6 +57,7 @@ const genderOptions = [
   { value: "Male", label: "Male" },
   { value: "Other", label: "Other" },
 ];
+const classAttendanceStatuses: ClassAttendanceStatus[] = ["present", "absent", "late", "excused"];
 
 const modules: ModuleConfig[] = [
   {
@@ -292,6 +294,10 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
   const [form, setForm] = useState<Record<string, string>>({});
   const [classAssignments, setClassAssignments] = useState<ClassAssignment>({});
   const [classAttendanceCounts, setClassAttendanceCounts] = useState<ClassAttendanceCount>({});
+  const [attendanceClass, setAttendanceClass] = useState<ModuleRecord | null>(null);
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [attendanceStatuses, setAttendanceStatuses] = useState<Record<string, ClassAttendanceStatus>>({});
+  const [attendanceNotes, setAttendanceNotes] = useState("");
   const [transferFile, setTransferFile] = useState<File | null>(null);
   const [editing, setEditing] = useState<ModuleRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -468,30 +474,49 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
     return member.id;
   }
 
-  async function recordClassAttendance(record: ModuleRecord) {
+  function openClassAttendance(record: ModuleRecord) {
     if (!canManage) return;
-    const supabase = createClient();
-    if (!supabase) return;
     const candidateIds = classAssignments[record.id] ?? selectedIds(record.data.candidate_ids ?? "");
     if (!candidateIds.length) {
       setError("Assign at least one candidate to this class before recording attendance.");
       return;
     }
+    setAttendanceClass(record);
+    setAttendanceDate(new Date().toISOString().slice(0, 10));
+    setAttendanceStatuses(Object.fromEntries(candidateIds.map((candidateId) => [candidateId, "present" as ClassAttendanceStatus])));
+    setAttendanceNotes("");
+    setError("");
+  }
+
+  async function saveClassAttendance(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!attendanceClass || !canManage) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    const candidateIds = classAssignments[attendanceClass.id] ?? selectedIds(attendanceClass.data.candidate_ids ?? "");
+    if (!candidateIds.length) {
+      setError("No assigned candidates found for this class.");
+      return;
+    }
+    setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
-    const today = new Date().toISOString().slice(0, 10);
     const { error: attendanceError } = await supabase.from("baptism_class_attendance").upsert(candidateIds.map((candidateId) => ({
-      class_id: record.id,
+      class_id: attendanceClass.id,
       candidate_id: candidateId,
-      attendance_date: today,
-      status: "present",
+      attendance_date: attendanceDate,
+      status: attendanceStatuses[candidateId] ?? "present",
+      notes: attendanceNotes || null,
       recorded_by: user?.id ?? null,
     })), { onConflict: "class_id,candidate_id,attendance_date" });
     if (attendanceError) {
       setError(`Unable to record class attendance: ${attendanceError.message}`);
+      setSaving(false);
       return;
     }
     setNotice(`Class attendance recorded for ${candidateIds.length} candidate(s).`);
-    void loadRecords();
+    setAttendanceClass(null);
+    setSaving(false);
+    await loadRecords();
   }
 
   async function approveTransfer(record: ModuleRecord) {
@@ -710,7 +735,7 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
             <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{activeModule.columns.map((column) => <th className="px-5 py-3.5 font-semibold" key={column.key}>{column.label}</th>)}<th className="px-5 py-3.5 font-semibold">Actions</th></tr></thead>
             <tbody>
               {loading && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={activeModule.columns.length + 1}>Loading baptism and transfer records...</td></tr>}
-              {!loading && filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={record.id}>{activeModule.columns.map((column) => <td className="px-5 py-4 text-slate-600" key={column.key}>{["status", "approval_status"].includes(column.key) ? <StatusBadge tone={statusTone(record.data[column.key])}>{labelFor(record.data[column.key])}</StatusBadge> : displayValue(record.data, column.key) || "-"}</td>)}<td className="px-5 py-4"><div className="flex flex-wrap gap-1">{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Edit record" onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button>}{canManage && activeKey === "classes" && <Button type="button" size="sm" variant="outline" onClick={() => recordClassAttendance(record)}><CheckCircle2 className="h-4 w-4" /> Attendance</Button>}{canManage && ["transferIn", "transferOut"].includes(activeKey) && record.data.approval_status !== "approved" && <Button type="button" size="sm" variant="outline" onClick={() => approveTransfer(record)}><CheckCircle2 className="h-4 w-4" /> Approve</Button>}{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Delete record" onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div></td></tr>)}
+              {!loading && filtered.map((record) => <tr className="border-b border-slate-100 last:border-0" key={record.id}>{activeModule.columns.map((column) => <td className="px-5 py-4 text-slate-600" key={column.key}>{["status", "approval_status"].includes(column.key) ? <StatusBadge tone={statusTone(record.data[column.key])}>{labelFor(record.data[column.key])}</StatusBadge> : displayValue(record.data, column.key) || "-"}</td>)}<td className="px-5 py-4"><div className="flex flex-wrap gap-1">{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Edit record" onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button>}{canManage && activeKey === "classes" && <Button type="button" size="sm" variant="outline" onClick={() => openClassAttendance(record)}><CheckCircle2 className="h-4 w-4" /> Attendance</Button>}{canManage && ["transferIn", "transferOut"].includes(activeKey) && record.data.approval_status !== "approved" && <Button type="button" size="sm" variant="outline" onClick={() => approveTransfer(record)}><CheckCircle2 className="h-4 w-4" /> Approve</Button>}{canManage && <Button type="button" size="icon" variant="ghost" aria-label="Delete record" onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div></td></tr>)}
               {!loading && filtered.length === 0 && <tr><td className="px-5 py-12 text-center text-slate-500" colSpan={activeModule.columns.length + 1}>No {activeModule.title.toLowerCase()} records found.</td></tr>}
             </tbody>
           </table>
@@ -725,12 +750,32 @@ export function BaptismTransfersManagement({ classesOnly = false, initialActiveK
       </section>
 
       {showForm && <RecordModal candidates={candidates} config={activeModule} error={error} form={form} saving={saving} setForm={setForm} setTransferFile={setTransferFile} editing={editing} onClose={closeForm} onSubmit={save} />}
+      {attendanceClass && <ClassAttendanceModal attendanceClass={attendanceClass} candidateIds={classAssignments[attendanceClass.id] ?? selectedIds(attendanceClass.data.candidate_ids ?? "")} candidates={candidates} date={attendanceDate} notes={attendanceNotes} saving={saving} statuses={attendanceStatuses} setDate={setAttendanceDate} setNotes={setAttendanceNotes} setStatuses={setAttendanceStatuses} onClose={() => setAttendanceClass(null)} onSubmit={saveClassAttendance} />}
     </div>
   );
 }
 
 function ReportCard({ title, rows }: { title: string; rows: [string, number][] }) {
   return <Card><CardHeader><div><h2 className="font-bold text-navy">{title}</h2><p className="mt-1 text-xs text-slate-400">Summary for Hamburg Ghana SDA Church records.</p></div></CardHeader><CardContent className="space-y-2">{rows.map(([label, value]) => <div className="flex justify-between rounded-lg border border-slate-100 p-3 text-sm" key={label}><span className="text-slate-600">{label}</span><span className="font-bold text-churchblue">{value}</span></div>)}</CardContent></Card>;
+}
+
+function ClassAttendanceModal({ attendanceClass, candidateIds, candidates, date, notes, saving, statuses, setDate, setNotes, setStatuses, onClose, onSubmit }: {
+  attendanceClass: ModuleRecord;
+  candidateIds: string[];
+  candidates: CandidateOption[];
+  date: string;
+  notes: string;
+  saving: boolean;
+  statuses: Record<string, ClassAttendanceStatus>;
+  setDate: (date: string) => void;
+  setNotes: (notes: string) => void;
+  setStatuses: (statuses: Record<string, ClassAttendanceStatus>) => void;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const assignedCandidates = candidateIds.map((id) => candidates.find((candidate) => candidate.id === id) ?? { id, label: "Unknown candidate", name: "Unknown candidate" });
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form noValidate className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={onSubmit}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white p-5"><div><h2 className="font-bold text-navy">Record Class Attendance</h2><p className="mt-1 text-xs text-slate-400">{attendanceClass.data.class_name || "Baptism Class"} · {assignedCandidates.length} candidate(s)</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close attendance form" onClick={onClose}><X className="h-5 w-5" /></Button></div><div className="space-y-4 p-5"><label className="block text-sm font-semibold text-slate-700">Attendance Date<input className={fieldClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><div className="overflow-x-auto rounded-xl border border-slate-100"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><th className="px-4 py-3">Candidate</th><th className="px-4 py-3">Status</th></tr></thead><tbody>{assignedCandidates.map((candidate) => <tr className="border-t border-slate-100" key={candidate.id}><td className="px-4 py-3 font-semibold text-navy">{candidate.label}</td><td className="px-4 py-3"><select className={fieldClass.replace("mt-1.5 ", "")} value={statuses[candidate.id] ?? "present"} onChange={(event) => setStatuses({ ...statuses, [candidate.id]: event.target.value as ClassAttendanceStatus })}>{classAttendanceStatuses.map((status) => <option key={status} value={status}>{labelFor(status)}</option>)}</select></td></tr>)}</tbody></table></div><label className="block text-sm font-semibold text-slate-700">Notes<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={notes} onChange={(event) => setNotes(event.target.value)} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" disabled={saving} onClick={onClose}>Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving Attendance..." : "Save Attendance"}</Button></div></form></div>;
 }
 
 function RecordModal({ candidates, config, error, form, setForm, setTransferFile, saving, editing, onClose, onSubmit }: {
