@@ -24,6 +24,7 @@ type AttendanceRecord = {
   memberId: string;
   memberName: string;
   memberNumber: string;
+  memberPhoto: string;
   visitorName: string;
   departmentId: string;
   departmentName: string;
@@ -140,7 +141,7 @@ export function AttendanceManagement() {
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase
         .from("attendance_entries")
-        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_number, full_name), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
+        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_number, full_name, photo_thumbnail_url, photo_url), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
         .order("checked_in_at", { ascending: false }),
     ]);
 
@@ -185,6 +186,7 @@ export function AttendanceManagement() {
           memberId: row.member_id ?? "",
           memberName: member?.full_name ?? "",
           memberNumber: member ? memberNumber(member) : "",
+          memberPhoto: member?.photo_thumbnail_url ?? member?.photo_url ?? "",
           visitorName: row.visitor_name ?? "",
           departmentId: row.department_id ?? session?.department_id ?? "",
           departmentName: department?.name ?? "",
@@ -384,7 +386,7 @@ export function AttendanceManagement() {
             <table className="w-full min-w-[1080px] text-left text-sm">
               <thead><tr className="bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Date", "Service/Event", "Member/Visitor", "Department", "Status", "Recorded By", "Notes", "Actions"].map((label) => <th className="px-5 py-3.5" key={label}>{label}</th>)}</tr></thead>
               <tbody>
-                {filtered.map((record) => <tr className="border-t border-slate-100" key={record.id}><td className="px-5 py-4 font-semibold text-navy">{record.date}</td><td className="px-5 py-4 text-slate-600">{record.categoryName}</td><td className="px-5 py-4"><div className="font-semibold text-navy">{record.memberName || record.visitorName}</div><div className="text-xs text-slate-400">{record.memberNumber || "Visitor"}</div></td><td className="px-5 py-4 text-slate-600">{record.departmentName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={statusTone(record.status)}>{record.status}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{record.recordedBy}</td><td className="px-5 py-4 text-slate-500">{record.notes || "-"}</td><td className="px-5 py-4"><Button type="button" disabled={!canManage} variant="ghost" size="icon" aria-label={`Edit attendance for ${record.memberName || record.visitorName}`} onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button><Button type="button" disabled={!canManage} variant="ghost" size="icon" aria-label={`Delete attendance for ${record.memberName || record.visitorName}`} onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></td></tr>)}
+                {filtered.map((record) => <tr className="border-t border-slate-100" key={record.id}><td className="px-5 py-4 font-semibold text-navy">{record.date}</td><td className="px-5 py-4 text-slate-600">{record.categoryName}</td><td className="px-5 py-4"><div className="flex items-center gap-3"><MemberAvatar alt={record.memberName || record.visitorName || "Visitor"} size="sm" src={record.memberPhoto} /><div><div className="font-semibold text-navy">{record.memberName || record.visitorName}</div><div className="text-xs text-slate-400">{record.memberNumber || "Visitor"}</div></div></div></td><td className="px-5 py-4 text-slate-600">{record.departmentName || "-"}</td><td className="px-5 py-4"><StatusBadge tone={statusTone(record.status)}>{record.status}</StatusBadge></td><td className="px-5 py-4 text-slate-600">{record.recordedBy}</td><td className="px-5 py-4 text-slate-500">{record.notes || "-"}</td><td className="px-5 py-4"><Button type="button" disabled={!canManage} variant="ghost" size="icon" aria-label={`Edit attendance for ${record.memberName || record.visitorName}`} onClick={() => openForm(record)}><Pencil className="h-4 w-4" /></Button><Button type="button" disabled={!canManage} variant="ghost" size="icon" aria-label={`Delete attendance for ${record.memberName || record.visitorName}`} onClick={() => remove(record)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></td></tr>)}
                 {filtered.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={8}>No attendance records found.</td></tr>}
               </tbody>
             </table>

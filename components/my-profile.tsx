@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { KeyRound, Mail, MapPin, Pencil, Phone, Save, X } from "lucide-react";
+import { KeyRound, Mail, MapPin, Pencil, Phone, Save, Trash2, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { MemberAvatar } from "@/components/member-avatar";
-import { uploadMemberPhoto, validateMemberPhoto } from "@/lib/member-photos";
+import { removeMemberPhoto, uploadMemberPhoto, validateMemberPhoto } from "@/lib/member-photos";
 
 type MemberProfileRow = {
   member_number: string;
@@ -69,8 +69,25 @@ export function MyProfile() {
     try {
       const uploaded = await uploadMemberPhoto(supabase, profile.id, file);
       setProfile((current) => current ? { ...current, photo_url: uploaded.photoUrl, photo_thumbnail_url: uploaded.thumbnailUrl } : current);
+      setNotice("Profile photo updated.");
     } catch (photoError) {
       setError(photoError instanceof Error ? photoError.message : "Unable to upload profile photo.");
+    }
+    setSavingPhoto(false);
+  }
+
+  async function removePhoto() {
+    if (!profile?.id || !window.confirm("Remove your profile photo?")) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    setSavingPhoto(true);
+    setError("");
+    try {
+      await removeMemberPhoto(supabase, profile.id);
+      setProfile((current) => current ? { ...current, photo_url: null, photo_thumbnail_url: null } : current);
+      setNotice("Profile photo removed.");
+    } catch (photoError) {
+      setError(photoError instanceof Error ? photoError.message : "Unable to remove profile photo.");
     }
     setSavingPhoto(false);
   }
@@ -125,8 +142,9 @@ export function MyProfile() {
             <label className="block">
               <span className="sr-only">Change profile photo</span>
               <input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className="block w-44 text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-blue-50 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-churchblue" disabled={savingPhoto} type="file" onChange={(event) => changePhoto(event.target.files?.[0] ?? null)} />
-              <span className="mt-1 block max-w-44 text-xs text-slate-400">JPG, PNG, or WEBP. 4 MB max.</span>
+              <span className="mt-1 block max-w-44 text-xs text-slate-400">JPG, PNG, or WEBP. Profile photo must be 4 MB or smaller. Large images are resized automatically.</span>
             </label>
+            {(profile.photo_thumbnail_url || profile.photo_url) && <Button type="button" size="sm" variant="outline" disabled={savingPhoto} onClick={removePhoto}><Trash2 className="h-4 w-4" /> Remove Photo</Button>}
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold text-navy">{profile.full_name}</h1><StatusBadge tone="green">{titleCase(profile.status)}</StatusBadge></div>
