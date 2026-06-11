@@ -21,6 +21,7 @@ const nav = [
   { labelKey: "nav.dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "nav.pastorDashboard", href: "/pastor-dashboard", icon: ChartNoAxesCombined },
   { labelKey: "nav.members", href: "/members", icon: Users },
+  { labelKey: "nav.visitors", href: "/visitors", icon: UsersRound },
   { labelKey: "nav.departments", href: "/departments", icon: ShieldCheck },
   { labelKey: "nav.attendance", href: "/attendance", icon: ClipboardCheck },
   { labelKey: "nav.operations", href: "/operations", icon: ClipboardList },

@@ -42,6 +42,7 @@ export const ROUTE_ROLES: Record<string, AppRole[]> = {
   "/dashboard": allRoles,
   "/pastor-dashboard": ["super_admin", "pastor", "elder"],
   "/members": ["super_admin", "pastor", "elder", "church_clerk", "secretary", "department_head"],
+  "/visitors": ["super_admin", "pastor", "elder", "secretary"],
   "/my-profile": allRoles,
   "/my-attendance": allRoles,
   "/my-contributions": allRoles,
