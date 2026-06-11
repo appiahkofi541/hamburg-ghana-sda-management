@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, MapPin, Pencil, Plus,
-  Repeat2, Search, Sparkles, Trash2, UsersRound, X,
+  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, MapPin, Pencil, Plus,
+  Printer, QrCode, Repeat2, Search, Sparkles, Trash2, UsersRound, X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -105,6 +105,8 @@ export function CalendarManagement() {
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
   const [form, setForm] = useState<Omit<CalendarEvent, "id">>(emptyEvent);
   const [showForm, setShowForm] = useState(false);
+  const [qrEvent, setQrEvent] = useState<CalendarEvent | null>(null);
+  const [origin, setOrigin] = useState("");
   const [formError, setFormError] = useState("");
   const [savingEvent, setSavingEvent] = useState(false);
   const [notice, setNotice] = useState("");
@@ -120,6 +122,7 @@ export function CalendarManagement() {
   const [userId, setUserId] = useState("");
 
   useEffect(() => {
+    setOrigin(window.location.origin);
     async function loadEvents() {
       const supabase = createClient();
       if (supabase) {
@@ -209,6 +212,9 @@ export function CalendarManagement() {
     }
     loadEvents();
   }, []);
+
+  const qrCheckinUrl = qrEvent && origin ? `${origin}/event-checkin/${qrEvent.id}` : "";
+  const qrImageUrl = qrCheckinUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=12&data=${encodeURIComponent(qrCheckinUrl)}` : "";
 
   useEffect(() => {
     if (!createClient() && records.length) window.localStorage.setItem(storageKey, JSON.stringify(records));
@@ -306,6 +312,10 @@ export function CalendarManagement() {
     setNotice("Event deleted.");
   }
 
+  function printQrCode() {
+    window.print();
+  }
+
   async function resolveEventRegistrationId(event: CalendarEvent, supabase: SupabaseBrowserClient) {
     if (isUuid(event.id)) return event.id;
     const { data, error } = await supabase
@@ -322,6 +332,20 @@ export function CalendarManagement() {
     }
     setRecords((current) => current.map((item) => item.id === event.id ? { ...item, id: data.id } : item));
     return data.id;
+  }
+
+  async function openQrCode(event: CalendarEvent) {
+    const supabase = createClient();
+    if (!supabase) {
+      setQrEvent(event);
+      return;
+    }
+    try {
+      const resolvedEventId = await resolveEventRegistrationId(event, supabase);
+      setQrEvent({ ...event, id: resolvedEventId });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to prepare QR code.");
+    }
   }
 
   async function registerForEvent(event: CalendarEvent) {
@@ -470,9 +494,10 @@ export function CalendarManagement() {
           const isRegistered = registration?.status === "Registered" || registration?.status === "Attended";
           const canRegister = hasMember && isPublished && (!registration || registration.status === "Cancelled");
           const canCancel = Boolean(memberId && hasValidRegistrationIds && registration && registration.status === "Registered" && !registration.confirmed);
-          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed || registration.status === "Attended" ? "green" : registration.status === "Cancelled" ? "slate" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p>{isPublished && <div className="mt-3 flex flex-wrap items-center gap-2">{memberLookupComplete && !memberId && <Button size="sm" variant="outline" disabled>Member profile required</Button>}{canRegister && <button type="button" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50" disabled={registeringEventId === event.id} onClick={(clickEvent) => { clickEvent.preventDefault(); clickEvent.stopPropagation(); handleRegisterClick(event); }}>{registeringEventId === event.id ? "Registering..." : "Register"}</button>}{isRegistered && <Button type="button" size="sm" variant="outline" disabled>Registered</Button>}{canCancel && <Button type="button" size="sm" variant="outline" onClick={() => cancelRegistration(event)}>Cancel Registration</Button>}{memberId && registration && registration.status === "Registered" && !registration.confirmed && <Button type="button" size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{registrationFeedback && <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-churchblue">{registrationFeedback}</span>}</div>}</div></div><div className="flex flex-wrap justify-end gap-1 self-end md:self-auto">{canManage && <><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
+          return <div className="flex flex-col justify-between gap-4 p-5 md:flex-row md:items-center" key={event.id}><div className="flex gap-4"><div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50"><p className="text-[10px] font-bold text-churchblue">{new Date(event.startsAt).toLocaleString("en", { month: "short" }).toUpperCase()}</p><p className="text-xl font-bold text-navy">{new Date(event.startsAt).getDate()}</p></div><div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-navy">{event.title}</h3><StatusBadge tone="blue">{event.category}</StatusBadge>{event.departmentName && <StatusBadge tone="slate">{event.departmentName}</StatusBadge>}{event.recurrence !== "None" && <StatusBadge tone="gold"><Repeat2 className="mr-1 h-3 w-3" />{event.recurrence}</StatusBadge>}{registration && <StatusBadge tone={registration.confirmed || registration.status === "Attended" ? "green" : registration.status === "Cancelled" ? "slate" : "gold"}>{registration.confirmed ? "Attendance Confirmed" : registration.status}</StatusBadge>}</div><p className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />{event.startsAt.replace("T", " ")}{event.endsAt && ` to ${event.endsAt.replace("T", " ")}`}</p><p className="mt-1 flex items-center gap-2 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{event.location}</p>{isPublished && <div className="mt-3 flex flex-wrap items-center gap-2">{memberLookupComplete && !memberId && <Button size="sm" variant="outline" disabled>Member profile required</Button>}{canRegister && <button type="button" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50" disabled={registeringEventId === event.id} onClick={(clickEvent) => { clickEvent.preventDefault(); clickEvent.stopPropagation(); handleRegisterClick(event); }}>{registeringEventId === event.id ? "Registering..." : "Register"}</button>}{isRegistered && <Button type="button" size="sm" variant="outline" disabled>Registered</Button>}{canCancel && <Button type="button" size="sm" variant="outline" onClick={() => cancelRegistration(event)}>Cancel Registration</Button>}{memberId && registration && registration.status === "Registered" && !registration.confirmed && <Button type="button" size="sm" variant="outline" onClick={() => confirmAttendance(event)}><CheckCircle2 className="h-4 w-4" /> Confirm Attendance</Button>}{registrationFeedback && <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-churchblue">{registrationFeedback}</span>}</div>}</div></div><div className="flex flex-wrap justify-end gap-1 self-end md:self-auto">{canManage && <><Button variant="ghost" size="icon" aria-label={`Show QR code for ${event.title}`} onClick={() => void openQrCode(event)}><QrCode className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Edit ${event.title}`} onClick={() => openForm(event)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${event.title}`} onClick={() => deleteEvent(event)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></>}</div></div>;
         })}</div>
       </Card>
+      {qrEvent && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 print:static print:bg-white print:p-0"><div className="w-full max-w-lg rounded-xl bg-white shadow-2xl print:shadow-none"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 print:hidden"><div><h2 className="font-bold text-navy">Event Check-in QR Code</h2><p className="mt-1 text-xs text-slate-400">Members scan this code to check in.</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close QR code modal" onClick={() => setQrEvent(null)}><X className="h-5 w-5" /></Button></div><div className="p-6 text-center"><p className="text-xs font-bold uppercase tracking-[0.3em] text-churchblue">Hamburg Ghana SDA Church</p><h3 className="mt-3 text-xl font-bold text-navy">{qrEvent.title}</h3><p className="mt-2 text-sm text-slate-500">{qrEvent.startsAt.replace("T", " ")}{qrEvent.location ? ` | ${qrEvent.location}` : ""}</p>{qrImageUrl ? <object aria-label={`QR code for ${qrEvent.title}`} className="mx-auto mt-6 h-72 w-72 rounded-xl border border-slate-100 p-3" data={qrImageUrl} type="image/png" /> : <div className="mx-auto mt-6 flex h-72 w-72 items-center justify-center rounded-xl border border-dashed border-slate-200 text-sm text-slate-500">Preparing QR code...</div>}<p className="mx-auto mt-4 max-w-sm break-all text-xs text-slate-400">{qrCheckinUrl}</p><div className="mt-6 flex flex-wrap justify-center gap-2 print:hidden"><Button type="button" onClick={printQrCode}><Printer className="h-4 w-4" /> Print</Button>{qrImageUrl && <a className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50" href={qrImageUrl} rel="noreferrer" target="_blank"><Download className="h-4 w-4" /> Download</a>}<Button type="button" variant="outline" onClick={() => setQrEvent(null)}>Close</Button></div></div></div></div>}
       {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl" noValidate onSubmit={saveEvent}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><div><h2 className="font-bold text-navy">{editing ? "Edit Event" : "Create Event"}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church calendar entry</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close event form" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></Button></div>{formError && <div className="mx-5 mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</div>}<div className="grid gap-4 p-5 sm:grid-cols-2">{[["Event Title", "title", "text"], ["Location", "location", "text"], ["Starts At", "startsAt", "datetime-local"], ["Ends At", "endsAt", "datetime-local"], ["Repeat Until", "recurrenceUntil", "date"]].map(([label, key, type]) => <label className="text-sm font-semibold text-slate-700" key={key}>{label}<input className={fieldClass} type={type} value={String(form[key as keyof typeof form])} onChange={(event) => { setFormError(""); setForm({ ...form, [key]: event.target.value }); }} /></label>)}{[["Category", "category", eventCategories.map(({ name }) => name)], ["Recurring Event", "recurrence", ["None", "Weekly", "Monthly", "Yearly"]], ["Status", "status", ["Published", "Draft", "Cancelled"]]].map(([label, key, options]) => <label className="text-sm font-semibold text-slate-700" key={String(key)}>{label}<select className={fieldClass} value={String(form[key as keyof typeof form])} onChange={(event) => { setFormError(""); setForm({ ...form, [String(key)]: event.target.value }); }}>{(options as string[]).map((option) => <option key={option}>{option}</option>)}</select></label>)}<label className="text-sm font-semibold text-slate-700">Organizing Department<select className={fieldClass} value={form.departmentId} onChange={(event) => { setFormError(""); const department = departments.find((item) => item.id === event.target.value); setForm({ ...form, departmentId: event.target.value, departmentName: department?.name ?? "" }); }}><option value="">No department assigned</option>{departments.map((department) => <option disabled={!department.isActive && department.id !== form.departmentId} key={department.id} value={department.id}>{department.name}{department.isActive ? "" : " (Inactive)"}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Description<textarea className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue" value={form.description} onChange={(event) => { setFormError(""); setForm({ ...form, description: event.target.value }); }} /></label></div><div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4"><Button type="button" variant="outline" disabled={savingEvent} onClick={() => setShowForm(false)}>Cancel</Button><Button type="submit" disabled={savingEvent}>{savingEvent ? "Saving..." : editing ? "Save Changes" : "Create Event"}</Button></div></form></div>}
     </div>
   );
