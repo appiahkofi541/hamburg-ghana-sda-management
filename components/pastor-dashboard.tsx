@@ -219,6 +219,7 @@ export function PastorDashboard() {
     const finance = financeResult.data ?? [];
     const prayer = prayerResult.data ?? [];
     const departments = departmentsResult.data ?? [];
+    const activeDepartments = departments.filter((department) => department.is_active);
     const departmentMembers = departmentMembersResult.data ?? [];
     const profiles = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile.full_name ?? "Unassigned"]));
 
@@ -266,7 +267,7 @@ export function PastorDashboard() {
         titheThisMonth: finance.filter((row) => row.transaction_date >= monthStart && isTithe(row)).reduce((sum, row) => sum + Number(row.amount), 0),
         offeringsThisMonth: finance.filter((row) => row.transaction_date >= monthStart && isOffering(row)).reduce((sum, row) => sum + Number(row.amount), 0),
         prayerPending: pendingPrayer,
-        departmentsCount: departments.length,
+        departmentsCount: activeDepartments.length,
       },
       charts: {
         membershipGrowth: groupCountByMonth(members.map((member) => ({ date: member.joined_on ?? member.created_at }))),
@@ -307,7 +308,7 @@ export function PastorDashboard() {
     { label: "Tithe This Month", value: currency.format(data.metrics.titheThisMonth), note: "Current month", icon: CircleDollarSign, tone: "bg-amber-50 text-amber-700" },
     { label: "Offerings This Month", value: currency.format(data.metrics.offeringsThisMonth), note: "Current month", icon: Landmark, tone: "bg-purple-50 text-purple-700" },
     { label: "Prayer Pending", value: String(data.metrics.prayerPending), note: "Submitted or praying", icon: HeartHandshake, tone: "bg-rose-50 text-rose-700" },
-    { label: "Departments Count", value: String(data.metrics.departmentsCount), note: "Active and inactive", icon: ShieldCheck, tone: "bg-slate-100 text-slate-600" },
+    { label: "Departments Count", value: String(data.metrics.departmentsCount), note: "Active departments", icon: ShieldCheck, tone: "bg-slate-100 text-slate-600" },
   ], [data.metrics]);
 
   async function exportPdf() {
