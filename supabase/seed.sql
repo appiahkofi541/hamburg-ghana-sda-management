@@ -103,7 +103,8 @@ values
   ('b0000000-0000-0000-0000-000000000003', 'HG-003', 'a0000000-0000-0000-0000-000000000005', 'Samuel', 'Asare', 'Samuel Asare', 'male', '1988-12-21', '+49 176 319 8724', 'departmenthead@hamburgghanasda.demo', 'Hamburg, Germany', true, '2005-07-09', 'married', 'Accountant', 'active', '2020-11-18'),
   ('b0000000-0000-0000-0000-000000000004', 'HG-004', null, 'Esi', 'Owusu', 'Esi Owusu', 'female', '1985-06-12', '+49 152 737 4309', 'esi.owusu@example.com', 'Hamburg, Germany', true, '2002-03-23', 'married', 'Nurse', 'active', '2023-08-26'),
   ('b0000000-0000-0000-0000-000000000005', 'HG-005', null, 'Daniel', 'Ofori', 'Daniel Ofori', 'male', '1998-02-09', '+49 176 967 5110', 'daniel.ofori@example.com', 'Hamburg, Germany', true, '2016-10-15', 'single', 'Designer', 'active', '2026-05-10'),
-  ('b0000000-0000-0000-0000-000000000006', 'HG-006', null, 'Adwoa', 'Nyarko', 'Adwoa Nyarko', 'female', '1994-07-18', '+49 176 234 9981', 'adwoa.nyarko@example.com', 'Hamburg, Germany', false, null, 'single', 'Student', 'active', '2026-04-04')
+  ('b0000000-0000-0000-0000-000000000006', 'HG-006', null, 'Adwoa', 'Nyarko', 'Adwoa Nyarko', 'female', '1994-07-18', '+49 176 234 9981', 'adwoa.nyarko@example.com', 'Hamburg, Germany', false, null, 'single', 'Student', 'active', '2026-04-04'),
+  ('b0000000-0000-0000-0000-000000000007', 'HG-007', 'a0000000-0000-0000-0000-000000000004', 'Grace', 'Appiah', 'Grace Appiah', 'female', '1987-03-14', '+49 176 555 0104', 'secretary@hamburgghanasda.demo', 'Hamburg, Germany', true, '2004-09-18', 'married', 'Church Secretary', 'active', '2021-09-01')
 on conflict (member_number) do update set
   profile_id = excluded.profile_id,
   first_name = excluded.first_name,
@@ -130,7 +131,8 @@ from (
     ('Youth Ministry', 'HG-003', true),
     ('Sabbath School', 'HG-004', false),
     ('Media Ministry', 'HG-005', false),
-    ('Youth Ministry', 'HG-006', false)
+    ('Youth Ministry', 'HG-006', false),
+    ('Secretariat', 'HG-007', false)
 ) as assignments(department_name, member_number, is_department_head)
 join public.departments on departments.name = assignments.department_name
 join public.members on members.member_number = assignments.member_number
