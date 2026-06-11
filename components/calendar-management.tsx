@@ -17,6 +17,7 @@ type EventCategory = string;
 type Recurrence = "None" | "Weekly" | "Monthly" | "Yearly";
 type DepartmentOption = { id: string; name: string; isActive: boolean };
 type EventCategoryOption = { name: string; tone: string; icon: LucideIcon };
+type LinkedMember = { id: string; profile_id: string | null; email: string | null; member_number: string | null; full_name: string | null };
 type CalendarEvent = {
   id: string;
   title: string;
@@ -68,7 +69,7 @@ function registrationStatus(value: string | null): EventRegistration["status"] {
 }
 
 function isUuid(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 const eventRegistrationColumnNote = "Database columns: public.event_registrations.event_id uses public.events.id; public.event_registrations.member_id uses public.members.id.";
@@ -132,17 +133,26 @@ export function CalendarManagement() {
           setCanManage(roleNames.some((role) => role === "super_admin" || role === "secretary"));
           const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
           const loginEmail = user.email ?? profile?.email ?? "";
-          const { data: profileMember } = await supabase.from("members").select("id").eq("profile_id", user.id).maybeSingle();
-          let member = profileMember;
+          const memberSelect = "id, profile_id, email, member_number, full_name";
+          const { data: profileMember, error: profileMemberError } = await supabase.from("members").select(memberSelect).eq("profile_id", user.id).maybeSingle();
+          if (profileMemberError) console.error("Unable to load member by public.members.profile_id", profileMemberError);
+          let member = profileMember as LinkedMember | null;
           if (!member?.id && loginEmail) {
-            const { data: emailMember } = await supabase.from("members").select("id").ilike("email", loginEmail).maybeSingle();
-            member = emailMember;
+            const { data: emailMember, error: emailMemberError } = await supabase.from("members").select(memberSelect).eq("email", loginEmail).maybeSingle();
+            if (emailMemberError) console.error("Unable to load member by public.members.email", emailMemberError);
+            member = emailMember as LinkedMember | null;
           }
-          if (!member?.id && profile?.full_name) {
-            const { data: nameMember } = await supabase.from("members").select("id").ilike("full_name", profile.full_name).maybeSingle();
-            member = nameMember;
-          }
-          if (member?.id) {
+          console.log("Event registration member lookup", {
+            authUserId: user.id,
+            loginEmail,
+            profileFullName: profile?.full_name ?? null,
+            selectedMemberId: member?.id ?? null,
+            selectedMemberProfileId: member?.profile_id ?? null,
+            selectedMemberEmail: member?.email ?? null,
+            selectedMemberNumber: member?.member_number ?? null,
+            sourceColumns: "public.members.id, public.members.profile_id, public.members.email",
+          });
+          if (member?.id && (member.profile_id === user.id || (!!loginEmail && member.email?.toLowerCase() === loginEmail.toLowerCase()))) {
             setMemberId(member.id);
             const { data: registrationRows, error: registrationError } = await supabase.from("event_registrations").select("*").eq("member_id", member.id);
             if (registrationError) {
@@ -153,7 +163,7 @@ export function CalendarManagement() {
           } else {
             setMemberId("");
             setRegistrations([]);
-            setMemberLookupMessage("Member profile required");
+            setMemberLookupMessage(`Member profile required. Link this login to public.members.profile_id = auth.users.id or set public.members.email to ${loginEmail || "the login email"}.`);
           }
           setMemberLookupComplete(true);
         } else {
