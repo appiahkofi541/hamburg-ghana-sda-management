@@ -19,6 +19,7 @@ import type { TranslationKey } from "@/lib/i18n";
 
 const nav = [
   { labelKey: "nav.dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "nav.pastorDashboard", href: "/pastor-dashboard", icon: ChartNoAxesCombined },
   { labelKey: "nav.members", href: "/members", icon: Users },
   { labelKey: "nav.departments", href: "/departments", icon: ShieldCheck },
   { labelKey: "nav.attendance", href: "/attendance", icon: ClipboardCheck },
