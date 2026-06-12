@@ -1,16 +1,14 @@
 import { Archive, CalendarClock, ClipboardCheck, MapPin } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
-import { ROLE_LABELS, type AppRole } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { getSupabasePublicKey } from "@/lib/auth";
 
 type AssetStatus = "available" | "assigned" | "in_use" | "under_maintenance" | "retired" | "lost";
 type AssignmentRow = {
   id: string;
   assigned_to_type: string;
-  member_id: string | null;
-  department_id: string | null;
-  profile_id: string | null;
+  assigned_to_name: string | null;
   assigned_role: string | null;
   assigned_location: string | null;
   checked_out_at: string | null;
@@ -20,6 +18,25 @@ type AssignmentRow = {
   condition_in: string | null;
   notes: string | null;
 };
+type AssetLookupPayload = {
+  asset: {
+    id: string;
+    asset_number: string;
+    name: string;
+    description: string | null;
+    serial_number: string | null;
+    purchase_date: string | null;
+    current_value: number | string | null;
+    location: string | null;
+    status: AssetStatus;
+    notes: string | null;
+    category_name: string | null;
+  };
+  currentAssignment: AssignmentRow | null;
+  assignmentHistory: AssignmentRow[];
+};
+
+export const dynamic = "force-dynamic";
 
 function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -37,59 +54,30 @@ function formatDateTime(value: string | null) {
   return value ? value.slice(0, 16).replace("T", " ") : "-";
 }
 
-function roleLabel(value: string | null) {
-  return value ? ROLE_LABELS[value as AppRole] ?? titleCase(value) : "Church Role";
-}
-
-function assignmentName(assignment: AssignmentRow, memberNames: Map<string, string>, departmentNames: Map<string, string>, profileNames: Map<string, string>) {
-  if (assignment.assigned_to_type === "member" && assignment.member_id) return memberNames.get(assignment.member_id) ?? "Member";
-  if (assignment.assigned_to_type === "department" && assignment.department_id) return departmentNames.get(assignment.department_id) ?? "Department";
-  if (assignment.assigned_to_type === "church_role") return roleLabel(assignment.assigned_role);
-  if (assignment.assigned_to_type === "location") return assignment.assigned_location ?? "Location";
-  if (assignment.profile_id) return profileNames.get(assignment.profile_id) ?? titleCase(assignment.assigned_to_type);
-  return titleCase(assignment.assigned_to_type);
-}
-
 export default async function AssetLookupPage({ params }: { params: Promise<{ assetNumber: string }> }) {
   const { assetNumber } = await params;
   const decodedAssetNumber = decodeURIComponent(assetNumber);
-  const supabase = createAdminClient();
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = getSupabasePublicKey();
 
-  if (!supabase) {
-    return <LookupShell><EmptyState title="Asset lookup is not configured" message="Server Supabase credentials are required to view asset QR lookup pages." /></LookupShell>;
+  if (!url || !key) {
+    return <LookupShell><EmptyState title="Asset lookup is not configured" message="Supabase public project credentials are required to view asset QR lookup pages." /></LookupShell>;
   }
 
-  const { data: asset, error: assetError } = await supabase
-    .from("assets")
-    .select("*, asset_categories(name)")
-    .eq("asset_number", decodedAssetNumber)
-    .maybeSingle();
+  const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  const { data, error } = await supabase.rpc("get_public_asset_lookup", { asset_number_input: decodedAssetNumber });
+  const lookup = data as AssetLookupPayload | null;
 
-  if (assetError || !asset) {
+  if (error) {
+    return <LookupShell><EmptyState title="Asset lookup is not ready" message="Run migration 202606120005_public_asset_lookup_rpc.sql in Supabase SQL Editor, then scan the QR code again." /></LookupShell>;
+  }
+
+  if (!lookup?.asset) {
     return <LookupShell><EmptyState title="Asset not found" message={`No asset record was found for ${decodedAssetNumber}.`} /></LookupShell>;
   }
 
-  const { data: assignments } = await supabase
-    .from("asset_assignments")
-    .select("*")
-    .eq("asset_id", asset.id)
-    .order("checked_out_at", { ascending: false });
-
-  const assignmentRows = (assignments ?? []) as AssignmentRow[];
-  const memberIds = [...new Set(assignmentRows.map((assignment) => assignment.member_id).filter((id): id is string => Boolean(id)))];
-  const departmentIds = [...new Set(assignmentRows.map((assignment) => assignment.department_id).filter((id): id is string => Boolean(id)))];
-  const profileIds = [...new Set(assignmentRows.map((assignment) => assignment.profile_id).filter((id): id is string => Boolean(id)))];
-
-  const [memberResult, departmentResult, profileResult] = await Promise.all([
-    memberIds.length ? supabase.from("members").select("id, member_id, full_name, first_name, last_name").in("id", memberIds) : Promise.resolve({ data: [] }),
-    departmentIds.length ? supabase.from("departments").select("id, name").in("id", departmentIds) : Promise.resolve({ data: [] }),
-    profileIds.length ? supabase.from("profiles").select("id, full_name, email").in("id", profileIds) : Promise.resolve({ data: [] }),
-  ]);
-
-  const memberNames = new Map((memberResult.data ?? []).map((member) => [member.id, member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_id || "Member"]));
-  const departmentNames = new Map((departmentResult.data ?? []).map((department) => [department.id, department.name]));
-  const profileNames = new Map((profileResult.data ?? []).map((profile) => [profile.id, profile.full_name ?? profile.email ?? "Profile"]));
-  const categoryName = Array.isArray(asset.asset_categories) ? asset.asset_categories[0]?.name : asset.asset_categories?.name;
+  const { asset, currentAssignment } = lookup;
+  const assignmentRows = lookup.assignmentHistory ?? [];
 
   return (
     <LookupShell>
@@ -99,7 +87,7 @@ export default async function AssetLookupPage({ params }: { params: Promise<{ as
           <div className="mt-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div>
               <h1 className="text-2xl font-bold text-navy">{asset.name}</h1>
-              <p className="mt-1 text-sm text-slate-500">{asset.asset_number} · {categoryName ?? "Uncategorized"}</p>
+              <p className="mt-1 text-sm text-slate-500">{asset.asset_number} · {asset.category_name ?? "Uncategorized"}</p>
             </div>
             <StatusBadge tone={statusTone(asset.status)}>{titleCase(asset.status as AssetStatus)}</StatusBadge>
           </div>
@@ -114,9 +102,11 @@ export default async function AssetLookupPage({ params }: { params: Promise<{ as
         <Card className="p-5">
           <h2 className="font-bold text-navy">Asset Details</h2>
           <div className="mt-4 space-y-3 text-sm">
+            <Detail label="Asset ID" value={asset.asset_number} />
+            <Detail label="Category" value={asset.category_name ?? "Uncategorized"} />
             <Detail label="Status" value={titleCase(asset.status as string)} />
             <Detail label="Current Value" value={`EUR ${Number(asset.current_value ?? 0).toLocaleString("de-DE")}`} />
-            <Detail label="Purchase Cost" value={`EUR ${Number(asset.purchase_cost ?? 0).toLocaleString("de-DE")}`} />
+            <Detail label="Current Assignment" value={currentAssignment?.assigned_to_name ?? "No active assignment"} />
             <Detail label="Description" value={asset.description ?? "No description recorded."} />
           </div>
         </Card>
@@ -136,7 +126,7 @@ export default async function AssetLookupPage({ params }: { params: Promise<{ as
             <tbody>
               {assignmentRows.map((assignment) => (
                 <tr className="border-t border-slate-100" key={assignment.id}>
-                  <td className="px-5 py-4 font-semibold text-navy">{assignmentName(assignment, memberNames, departmentNames, profileNames)}</td>
+                  <td className="px-5 py-4 font-semibold text-navy">{assignment.assigned_to_name ?? titleCase(assignment.assigned_to_type)}</td>
                   <td className="px-5 py-4 text-slate-600">{titleCase(assignment.assigned_to_type)}</td>
                   <td className="px-5 py-4 text-slate-600">{formatDateTime(assignment.checked_out_at)}</td>
                   <td className="px-5 py-4 text-slate-600">{assignment.expected_return_date ?? "-"}</td>
