@@ -95,6 +95,7 @@ const tabs: { id: FinanceTab; label: string }[] = [
   { id: "income", label: "Income & Expenditure" },
   { id: "whatsapp", label: "WhatsApp Receipts" },
 ];
+const readOnlyFinanceTabs = new Set<FinanceTab>(["dashboard", "history", "statement", "monthly", "quarterly", "annual", "transactions", "reports", "income"]);
 const financeTranslationKeys: Record<string, TranslationKey> = {
   "Tithe": "finance.tithe",
   "Offering": "finance.offering",
@@ -278,6 +279,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
   const [saving, setSaving] = useState(false);
   const [processingTransactionId, setProcessingTransactionId] = useState("");
   const [isTreasurer, setIsTreasurer] = useState(false);
+  const [canViewFinanceReports, setCanViewFinanceReports] = useState(!createClient());
   const [canManageContributions, setCanManageContributions] = useState(false);
   const [canManageSubAccounts, setCanManageSubAccounts] = useState(false);
   const [currentUserId, setCurrentUserId] = useState("");
@@ -306,6 +308,7 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
         const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
         const roleNames = normalizeRoles((roleRows ?? []).map(({ role }) => role));
         setIsTreasurer(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
+        setCanViewFinanceReports(roleNames.some((role) => ["super_admin", "pastor", "elder", "treasurer"].includes(role)));
         setCanManageContributions(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
         setCanManageSubAccounts(roleNames.some((role) => role === "treasurer" || role === "super_admin"));
       }
@@ -402,11 +405,20 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
 
   const income = transactions.filter(({ type }) => ["Income", "Tithe", "Offering", "Building Fund", "Mission Offering", "Donation", "Welfare", "Other", "Other Church Payment"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
   const expenditure = transactions.filter(({ type }) => ["Expenditure", "Expense"].includes(type)).reduce((sum, item) => sum + item.amount, 0);
+  const visibleTabs = useMemo(() => tabs.filter((tab) => canManageContributions || readOnlyFinanceTabs.has(tab.id)), [canManageContributions]);
+  const isReadOnlyFinanceViewer = canViewFinanceReports && !canManageContributions;
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab("dashboard");
+    }
+  }, [activeTab, visibleTabs]);
   const accessMessage = isTreasurer
     ? "Finance management access: Super Admin and Treasurer can add, modify, delete, search, export, generate receipts, and manage finance accounts."
     : canManageSubAccounts
       ? "Contribution management access: Super Admin can add, edit, search, export, generate receipts, and manage income and expenditure sub-accounts."
-      : "Read-only contribution access: members can view their own giving history; finance reports are visible only to authorized leaders.";
+      : canViewFinanceReports
+        ? "Read-only access: Pastor can view contribution dashboards, history, statements, payments, reports, and exports, but cannot create, edit, delete, record payments, or manage accounts."
+        : "Read-only contribution access: members can view their own giving history; finance reports are visible only to authorized leaders.";
   const filteredTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return transactions.filter((item) => !normalized || Object.values(item).some((value) => String(value).toLowerCase().includes(normalized)));
@@ -913,13 +925,14 @@ export function FinanceManagement({ initialTab = "dashboard" }: { initialTab?: F
       </div>
 
       <div className="flex gap-2 overflow-x-auto rounded-xl border border-slate-100 bg-white p-2 shadow-card">
-        {tabs.map((tab) => <Button key={tab.id} size="sm" variant={activeTab === tab.id ? "default" : "ghost"} onClick={() => setActiveTab(tab.id)}>{ft(tab.label)}</Button>)}
+        {visibleTabs.map((tab) => <Button key={tab.id} size="sm" variant={activeTab === tab.id ? "default" : "ghost"} onClick={() => setActiveTab(tab.id)}>{ft(tab.label)}</Button>)}
       </div>
 
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-medium text-churchblue"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
       {operationMessage && <p className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-churchblue">{operationMessage}</p>}
       <div className={`rounded-lg px-4 py-3 text-sm font-medium ${canManageContributions ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{accessMessage}</div>
+      {isReadOnlyFinanceViewer && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">Read-only access</div>}
       {!whatsappConfigured && <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">WhatsApp integration not configured yet.</div>}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
