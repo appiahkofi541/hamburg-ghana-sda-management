@@ -60,6 +60,7 @@ const inventoryCategories = [
   "Maintenance Supplies",
   "Other",
 ];
+const assetLookupBaseUrl = process.env.NEXT_PUBLIC_ASSET_LOOKUP_BASE_URL?.replace(/\/$/, "") || "https://hamburg-ghana-sda-management.vercel.app";
 
 function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -73,14 +74,22 @@ function statusTone(status: string) {
   return "slate";
 }
 
-function qrPattern(value: string) {
-  let hash = 0;
-  for (const char of value) hash = (hash * 33 + char.charCodeAt(0)) >>> 0;
-  return Array.from({ length: 121 }, (_, index) => ((hash >> (index % 24)) + index + Math.floor(index / 11)) % 3 === 0);
+function assetLookupUrl(assetNumber: string) {
+  return `${assetLookupBaseUrl}/assets/lookup/${encodeURIComponent(assetNumber)}`;
+}
+
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function AssetQr({ asset }: { asset: Asset }) {
-  return <div className="inline-grid grid-cols-[repeat(11,0.55rem)] gap-0.5 rounded-lg border border-slate-200 bg-white p-3" aria-label={`QR code for ${asset.assetNumber}`}>{qrPattern(asset.assetNumber || asset.id).map((filled, index) => <span className={`h-2 w-2 ${filled ? "bg-navy" : "bg-white"}`} key={index} />)}</div>;
+  const lookupUrl = assetLookupUrl(asset.assetNumber);
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=10&data=${encodeURIComponent(lookupUrl)}`;
+  return <object aria-label={`QR code for ${asset.assetNumber}`} className="h-24 w-24 rounded-lg border border-slate-200 bg-white p-2" data={qrImageUrl} title={lookupUrl} type="image/png"><span className="break-all text-[10px] text-slate-400">{lookupUrl}</span></object>;
 }
 
 function nextNumber(prefix: string, values: string[]) {
@@ -388,7 +397,8 @@ export function AssetInventoryManagement() {
     document.save("Hamburg-Ghana-SDA-Assets.pdf");
   }
 
-  const scannedAsset = assets.find((asset) => asset.assetNumber.toLowerCase() === scanCode.trim().toLowerCase() || asset.id === scanCode.trim());
+  const normalizedScanCode = safeDecode(scanCode.trim()).split("/").pop()?.toLowerCase() ?? "";
+  const scannedAsset = assets.find((asset) => asset.assetNumber.toLowerCase() === normalizedScanCode || asset.id === scanCode.trim());
   const reportRows = [
     ["Asset Register Report", assets.length],
     ["Asset Assignment Report", assignments.length],
@@ -457,7 +467,8 @@ function HistoryCard({ title, rows }: { title: string; rows: string[][] }) {
 }
 
 function QrTab({ assets, scanCode, setScanCode, scannedAsset, onCheckOut }: { assets: Asset[]; scanCode: string; setScanCode: (value: string) => void; scannedAsset?: Asset; onCheckOut: (assetId: string) => void }) {
-  return <div className="grid gap-6 xl:grid-cols-[0.8fr_1.4fr]"><Card className="p-5"><h2 className="font-bold text-navy">Scan QR / Asset ID</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Asset ID<input className={fieldClass} placeholder="AST-2026-001" value={scanCode} onChange={(event) => setScanCode(event.target.value)} /></label><p className="mt-3 text-xs leading-5 text-slate-400">Enter or scan an asset QR code to view asset details and start check-in/check-out workflows.</p></Card><Card className="p-5">{scannedAsset ? <div className="grid gap-5 md:grid-cols-[auto_1fr]"><AssetQr asset={scannedAsset} /><div><h2 className="text-xl font-bold text-navy">{scannedAsset.name}</h2><p className="mt-1 text-sm text-slate-500">{scannedAsset.assetNumber} · {scannedAsset.categoryName}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Info label="Serial Number" value={scannedAsset.serialNumber || "-"} /><Info label="Location" value={scannedAsset.location || "-"} /><Info label="Current Value" value={currency.format(scannedAsset.currentValue)} /><Info label="Status" value={titleCase(scannedAsset.status)} /></div><Button className="mt-4" disabled={scannedAsset.status !== "available"} onClick={() => onCheckOut(scannedAsset.id)}><LogOut className="h-4 w-4" /> Check Out Asset</Button></div></div> : <p className="py-12 text-center text-sm text-slate-500">No asset selected. Try one of: {assets.slice(0, 3).map((asset) => asset.assetNumber).join(", ") || "AST-2026-001"}.</p>}</Card></div>;
+  const lookupUrl = scannedAsset ? assetLookupUrl(scannedAsset.assetNumber) : "";
+  return <div className="grid gap-6 xl:grid-cols-[0.8fr_1.4fr]"><Card className="p-5"><h2 className="font-bold text-navy">Scan QR / Asset ID</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Asset ID or Lookup URL<input className={fieldClass} placeholder="AST-2026-001 or https://.../assets/lookup/AST-2026-001" value={scanCode} onChange={(event) => setScanCode(event.target.value)} /></label><p className="mt-3 text-xs leading-5 text-slate-400">Enter an asset ID or scanned lookup URL to view asset details and start check-in/check-out workflows.</p></Card><Card className="p-5">{scannedAsset ? <div className="grid gap-5 md:grid-cols-[auto_1fr]"><AssetQr asset={scannedAsset} /><div><h2 className="text-xl font-bold text-navy">{scannedAsset.name}</h2><p className="mt-1 text-sm text-slate-500">{scannedAsset.assetNumber} · {scannedAsset.categoryName}</p><p className="mt-2 break-all text-xs text-churchblue">{lookupUrl}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Info label="Serial Number" value={scannedAsset.serialNumber || "-"} /><Info label="Location" value={scannedAsset.location || "-"} /><Info label="Current Value" value={currency.format(scannedAsset.currentValue)} /><Info label="Status" value={titleCase(scannedAsset.status)} /></div><Button className="mt-4" disabled={scannedAsset.status !== "available"} onClick={() => onCheckOut(scannedAsset.id)}><LogOut className="h-4 w-4" /> Assign Asset</Button></div></div> : <p className="py-12 text-center text-sm text-slate-500">No asset selected. Try one of: {assets.slice(0, 3).map((asset) => asset.assetNumber).join(", ") || "AST-2026-001"}.</p>}</Card></div>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
