@@ -11,10 +11,10 @@ import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeRoles, type AppRole } from "@/lib/auth";
-import { fallbackChurchProfile, loadPublicChurchProfile, type ChurchProfile } from "@/lib/church-profile";
+import { fallbackChurchProfile, loadPublicChurchProfile, normalizeChurchElder, type ChurchElder, type ChurchProfile } from "@/lib/church-profile";
 
 type Channel = "email" | "whatsapp" | "sms";
-type Audience = "all_members" | "all_visitors" | "department" | "role" | "individual";
+type Audience = "all_members" | "all_visitors" | "department" | "role" | "leaders" | "individual";
 type CampaignStatus = "draft" | "scheduled" | "pending" | "sent" | "failed";
 type ReminderType = "general" | "event_reminder" | "baptism_class_reminder" | "visitor_follow_up" | "birthday_greeting" | "sabbath_service" | "prayer_meeting" | "prayer_request" | "contribution_receipt";
 type Tab = "compose" | "reminders" | "templates" | "history";
@@ -31,6 +31,7 @@ type Campaign = {
   roleName: string;
   recipientMemberId: string;
   recipientVisitorId: string;
+  recipientElderId: string;
   reminderType: ReminderType;
   subject: string;
   message: string;
@@ -63,6 +64,7 @@ const emptyCampaign = {
   roleName: "",
   recipientMemberId: "",
   recipientVisitorId: "",
+  recipientElderId: "",
   reminderType: "general" as ReminderType,
   subject: "",
   message: "",
@@ -109,6 +111,7 @@ export function CommunicationModule() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [members, setMembers] = useState<RecipientOption[]>([]);
   const [visitors, setVisitors] = useState<RecipientOption[]>([]);
+  const [elders, setElders] = useState<ChurchElder[]>([]);
   const [events, setEvents] = useState<EventOption[]>([]);
   const [visitorFollowUps, setVisitorFollowUps] = useState<VisitorFollowUp[]>([]);
   const [baptismClasses, setBaptismClasses] = useState<BaptismClass[]>([]);
@@ -153,10 +156,11 @@ export function CommunicationModule() {
     const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
     setRoles(normalizeRoles((roleRows ?? []).map(({ role }) => role)));
 
-    const [departmentResult, memberResult, visitorResult, campaignResult, deliveryResult, templateResult, eventResult, followUpResult, baptismClassResult, profile] = await Promise.all([
+    const [departmentResult, memberResult, visitorResult, elderResult, campaignResult, deliveryResult, templateResult, eventResult, followUpResult, baptismClassResult, profile] = await Promise.all([
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase.from("members").select("id, member_id, full_name, first_name, last_name, email, phone").eq("status", "active").order("full_name"),
       supabase.from("visitors").select("id, visitor_number, full_name, email, phone, next_follow_up_date").order("visit_date", { ascending: false }),
+      supabase.from("church_elders").select("*").eq("is_active", true).order("sort_order").order("elder_name"),
       supabase.from("communication_campaigns").select("*").order("created_at", { ascending: false }),
       supabase.from("communication_delivery_logs").select("*").order("created_at", { ascending: false }),
       supabase.from("communication_templates").select("*").eq("is_active", true).order("name"),
@@ -185,6 +189,7 @@ export function CommunicationModule() {
       phone: visitor.phone ?? "",
       kind: "visitor",
     })));
+    setElders((elderResult.data ?? []).map(normalizeChurchElder));
     setCampaigns((campaignResult.data ?? []).map((row) => ({
       id: row.id,
       title: row.title,
@@ -194,6 +199,7 @@ export function CommunicationModule() {
       roleName: row.role_name ?? "",
       recipientMemberId: row.recipient_member_id ?? "",
       recipientVisitorId: row.recipient_visitor_id ?? "",
+      recipientElderId: row.recipient_elder_id ?? "",
       reminderType: row.reminder_type ?? "general",
       subject: row.subject ?? "",
       message: row.message,
@@ -248,6 +254,7 @@ export function CommunicationModule() {
         target_audience: campaignForm.audience,
         recipient_member_id: campaignForm.audience === "individual" ? campaignForm.recipientMemberId || null : null,
         recipient_visitor_id: campaignForm.audience === "individual" ? campaignForm.recipientVisitorId || null : null,
+        recipient_elder_id: campaignForm.audience === "individual" ? campaignForm.recipientElderId || null : null,
         department_name: campaignForm.audience === "department" ? campaignForm.department || null : null,
         role_name: campaignForm.audience === "role" ? campaignForm.roleName || null : null,
         reminder_type: campaignForm.reminderType,
@@ -349,7 +356,7 @@ export function CommunicationModule() {
         {activeTab === "history" && <HistoryTab deliveries={filteredDeliveries} loading={loading} query={query} setQuery={setQuery} />}
       </Card>
 
-      {showCampaign && <CampaignModal departments={departments} form={campaignForm} setForm={setCampaignForm} saving={saving} members={members} visitors={visitors} templates={templates} onTemplate={applyTemplate} onClose={() => setShowCampaign(false)} onSubmit={saveCampaign} />}
+      {showCampaign && <CampaignModal departments={departments} form={campaignForm} setForm={setCampaignForm} saving={saving} members={members} visitors={visitors} elders={elders} templates={templates} onTemplate={applyTemplate} onClose={() => setShowCampaign(false)} onSubmit={saveCampaign} />}
       {showTemplate && <TemplateModal form={templateForm} setForm={setTemplateForm} saving={saving} churchName={churchProfile.church_name} onClose={() => setShowTemplate(false)} onSubmit={saveTemplate} />}
     </div>
   );
@@ -387,8 +394,9 @@ function Empty({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm font-semibold text-slate-500">{text}</div>;
 }
 
-function CampaignModal({ departments, form, setForm, saving, members, visitors, templates, onTemplate, onClose, onSubmit }: { departments: DepartmentOption[]; form: typeof emptyCampaign; setForm: (form: typeof emptyCampaign) => void; saving: boolean; members: RecipientOption[]; visitors: RecipientOption[]; templates: Template[]; onTemplate: (id: string) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Compose Message" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Campaign Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><Select label="Channel" value={form.channel} onChange={(value) => setForm({ ...form, channel: value as Channel })} options={channelOptions} /><Select label="Message Type" value={form.reminderType} onChange={(value) => setForm({ ...form, reminderType: value as ReminderType })} options={reminderOptions} /><Select label="Bulk Audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value as Audience, department: "", roleName: "", recipientMemberId: "", recipientVisitorId: "" })} options={["all_members", "all_visitors", "department", "role", "individual"]} /><label className="text-sm font-semibold text-slate-700">Department<select className={fieldClass} disabled={form.audience !== "department"} value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}><option value="">{form.audience === "department" ? "Select department" : "Choose department audience first"}</option>{departments.map((department) => <option disabled={!department.isActive} key={department.id} value={department.name}>{department.name}</option>)}</select></label><Select label="Role" disabled={form.audience !== "role"} value={form.roleName} onChange={(value) => setForm({ ...form, roleName: value })} options={["", ...roleOptions]} /><label className="text-sm font-semibold text-slate-700">Individual Member<select className={fieldClass} disabled={form.audience !== "individual" || Boolean(form.recipientVisitorId)} value={form.recipientMemberId} onChange={(event) => setForm({ ...form, recipientMemberId: event.target.value, recipientVisitorId: "" })}><option value="">Select member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Individual Visitor<select className={fieldClass} disabled={form.audience !== "individual" || Boolean(form.recipientMemberId)} value={form.recipientVisitorId} onChange={(event) => setForm({ ...form, recipientVisitorId: event.target.value, recipientMemberId: "" })}><option value="">Select visitor</option>{visitors.map((visitor) => <option key={visitor.id} value={visitor.id}>{visitor.name}</option>)}</select></label><Input label="Schedule Date" type="datetime-local" value={form.scheduledAt} onChange={(value) => setForm({ ...form, scheduledAt: value })} /><Input label="Subject" value={form.subject} onChange={(value) => setForm({ ...form, subject: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Use Template<select className={fieldClass} onChange={(event) => onTemplate(event.target.value)}><option value="">Choose template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Message<textarea className={textareaClass} required value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} /></label><p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 sm:col-span-2">SMS gateway support is optional. If Email, WhatsApp, or SMS credentials are not configured, the system records failed delivery logs with provider setup details.</p></div><ModalActions saving={saving} label="Save / Send" onClose={onClose} /></form></Modal>;
+function CampaignModal({ departments, form, setForm, saving, members, visitors, elders, templates, onTemplate, onClose, onSubmit }: { departments: DepartmentOption[]; form: typeof emptyCampaign; setForm: (form: typeof emptyCampaign) => void; saving: boolean; members: RecipientOption[]; visitors: RecipientOption[]; elders: ChurchElder[]; templates: Template[]; onTemplate: (id: string) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const hasIndividual = Boolean(form.recipientMemberId || form.recipientVisitorId || form.recipientElderId);
+  return <Modal title="Compose Message" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Campaign Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><Select label="Channel" value={form.channel} onChange={(value) => setForm({ ...form, channel: value as Channel })} options={channelOptions} /><Select label="Message Type" value={form.reminderType} onChange={(value) => setForm({ ...form, reminderType: value as ReminderType })} options={reminderOptions} /><Select label="Bulk Audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value as Audience, department: "", roleName: "", recipientMemberId: "", recipientVisitorId: "", recipientElderId: "" })} options={["all_members", "all_visitors", "department", "role", "leaders", "individual"]} /><label className="text-sm font-semibold text-slate-700">Department<select className={fieldClass} disabled={form.audience !== "department"} value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}><option value="">{form.audience === "department" ? "Select department" : "Choose department audience first"}</option>{departments.map((department) => <option disabled={!department.isActive} key={department.id} value={department.name}>{department.name}</option>)}</select></label><Select label="Role" disabled={form.audience !== "role"} value={form.roleName} onChange={(value) => setForm({ ...form, roleName: value })} options={["", ...roleOptions]} /><label className="text-sm font-semibold text-slate-700">Individual Member<select className={fieldClass} disabled={form.audience !== "individual" || (hasIndividual && !form.recipientMemberId)} value={form.recipientMemberId} onChange={(event) => setForm({ ...form, recipientMemberId: event.target.value, recipientVisitorId: "", recipientElderId: "" })}><option value="">Select member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Individual Visitor<select className={fieldClass} disabled={form.audience !== "individual" || (hasIndividual && !form.recipientVisitorId)} value={form.recipientVisitorId} onChange={(event) => setForm({ ...form, recipientVisitorId: event.target.value, recipientMemberId: "", recipientElderId: "" })}><option value="">Select visitor</option>{visitors.map((visitor) => <option key={visitor.id} value={visitor.id}>{visitor.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Individual Elder<select className={fieldClass} disabled={form.audience !== "individual" || (hasIndividual && !form.recipientElderId)} value={form.recipientElderId} onChange={(event) => setForm({ ...form, recipientElderId: event.target.value, recipientMemberId: "", recipientVisitorId: "" })}><option value="">Select elder</option>{elders.map((elder) => <option key={elder.id} value={elder.id}>{elder.elder_name}</option>)}</select></label><Input label="Schedule Date" type="datetime-local" value={form.scheduledAt} onChange={(value) => setForm({ ...form, scheduledAt: value })} /><Input label="Subject" value={form.subject} onChange={(value) => setForm({ ...form, subject: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Use Template<select className={fieldClass} onChange={(event) => onTemplate(event.target.value)}><option value="">Choose template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Message<textarea className={textareaClass} required value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} /></label><p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 sm:col-span-2">SMS gateway support is optional. If Email, WhatsApp, or SMS credentials are not configured, the system records failed delivery logs with provider setup details.</p></div><ModalActions saving={saving} label="Save / Send" onClose={onClose} /></form></Modal>;
 }
 
 function TemplateModal({ form, setForm, saving, churchName, onClose, onSubmit }: { form: typeof emptyTemplate; setForm: (form: typeof emptyTemplate) => void; saving: boolean; churchName: string; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {

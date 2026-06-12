@@ -20,7 +20,22 @@ type VisitorRecipient = {
   contact: string;
 };
 
-type Recipient = MemberRecipient | VisitorRecipient;
+type ElderRecipient = {
+  kind: "elder";
+  id: string;
+  name: string;
+  contact: string;
+};
+
+type LeaderRecipient = {
+  kind: "leader";
+  id: string;
+  name: string;
+  contact: string;
+  role: string;
+};
+
+type Recipient = MemberRecipient | VisitorRecipient | ElderRecipient | LeaderRecipient;
 
 function providerConfigured(channel: string) {
   if (channel === "email") return Boolean(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
@@ -48,6 +63,10 @@ function memberContact(member: { email?: string | null; phone?: string | null },
 
 function visitorContact(visitor: { email?: string | null; phone?: string | null }, channel: string) {
   return channel === "email" ? visitor.email ?? "" : visitor.phone ?? "";
+}
+
+function elderContact(elder: { elder_email?: string | null; elder_phone?: string | null }, channel: string) {
+  return channel === "email" ? elder.elder_email ?? "" : elder.elder_phone ?? "";
 }
 
 export async function POST(request: Request) {
@@ -93,6 +112,39 @@ export async function POST(request: Request) {
       id: visitor.id,
       name: visitor.full_name || visitor.visitor_number || "Visitor",
       contact: visitorContact(visitor, campaign.channel),
+    })));
+  } else if (campaign.target_audience === "individual" && campaign.recipient_elder_id) {
+    const { data, error } = await supabase.from("church_elders").select("id, elder_name, elder_email, elder_phone").eq("id", campaign.recipient_elder_id).eq("is_active", true);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    recipients.push(...(data ?? []).map((elder) => ({
+      kind: "elder" as const,
+      id: elder.id,
+      name: elder.elder_name,
+      contact: elderContact(elder, campaign.channel),
+    })));
+  } else if (campaign.target_audience === "leaders") {
+    const [{ data: settings, error: settingsError }, { data: elders, error: eldersError }] = await Promise.all([
+      supabase.from("church_settings").select("pastor_name, pastor_phone, pastor_email, secretary_name, secretary_phone, secretary_email, treasurer_name, treasurer_phone, treasurer_email").eq("id", true).maybeSingle(),
+      supabase.from("church_elders").select("id, elder_name, elder_email, elder_phone").eq("is_active", true).order("sort_order").order("elder_name"),
+    ]);
+    if (settingsError || eldersError) return NextResponse.json({ error: settingsError?.message ?? eldersError?.message }, { status: 400 });
+    const leadership = [
+      { role: "pastor", id: "pastor", name: settings?.pastor_name, email: settings?.pastor_email, phone: settings?.pastor_phone },
+      { role: "secretary", id: "secretary", name: settings?.secretary_name, email: settings?.secretary_email, phone: settings?.secretary_phone },
+      { role: "treasurer", id: "treasurer", name: settings?.treasurer_name, email: settings?.treasurer_email, phone: settings?.treasurer_phone },
+    ].filter((leader) => leader.name || leader.email || leader.phone);
+    recipients.push(...leadership.map((leader) => ({
+      kind: "leader" as const,
+      id: leader.id,
+      name: leader.name || leader.role,
+      contact: campaign.channel === "email" ? leader.email ?? "" : leader.phone ?? "",
+      role: leader.role,
+    })));
+    recipients.push(...(elders ?? []).map((elder) => ({
+      kind: "elder" as const,
+      id: elder.id,
+      name: elder.elder_name,
+      contact: elderContact(elder, campaign.channel),
     })));
   } else if (campaign.target_audience === "role") {
     const requestedRole = toAppRole(campaign.role_name);
@@ -149,7 +201,7 @@ export async function POST(request: Request) {
       channel: campaign.channel,
       recipient_name: recipient.name,
       recipient_contact: recipient.contact || null,
-      recipient_role: recipient.kind === "member" ? recipient.role ?? null : "visitor",
+      recipient_role: recipient.kind === "member" ? recipient.role ?? null : recipient.kind === "leader" ? recipient.role : recipient.kind,
       status,
       delivery_status: status,
       error_message: errorMessage,

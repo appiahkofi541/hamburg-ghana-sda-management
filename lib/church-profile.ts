@@ -34,6 +34,15 @@ export type ChurchProfile = {
   notes: string;
 };
 
+export type ChurchElder = {
+  id: string;
+  elder_name: string;
+  elder_phone: string;
+  elder_email: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
 export const fallbackChurchProfile: ChurchProfile = {
   church_name: "Hamburg Ghana SDA Church",
   short_name: "Hamburg Ghana SDA",
@@ -80,4 +89,15 @@ export async function loadPublicChurchProfile(supabase: SupabaseClient | null): 
   if (!supabase) return fallbackChurchProfile;
   const { data } = await supabase.rpc("get_public_church_profile");
   return normalizeChurchProfile(data as Partial<ChurchProfile> | null);
+}
+
+export function normalizeChurchElder(value: Partial<ChurchElder>): ChurchElder {
+  return {
+    id: value.id ?? "",
+    elder_name: value.elder_name ?? "",
+    elder_phone: value.elder_phone ?? "",
+    elder_email: value.elder_email ?? "",
+    sort_order: Number(value.sort_order ?? 0),
+    is_active: value.is_active ?? true,
+  };
 }
