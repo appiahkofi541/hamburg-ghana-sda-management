@@ -9,11 +9,11 @@ import { Card } from "@/components/ui/card";
 import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
-import { normalizeRoles, type AppRole } from "@/lib/auth";
+import { APP_ROLES, ROLE_LABELS, normalizeRoles, type AppRole } from "@/lib/auth";
 import { required } from "@/lib/validation";
 
-type AssetStatus = "available" | "in_use" | "under_maintenance" | "retired" | "lost";
-type AssignmentType = "member" | "department" | "pastor";
+type AssetStatus = "available" | "assigned" | "in_use" | "under_maintenance" | "retired" | "lost";
+type AssignmentType = "member" | "department" | "pastor" | "church_role" | "location";
 type Tab = "assets" | "assignments" | "maintenance" | "inventory" | "qr" | "reports";
 type Category = { id: string; name: string; isActive: boolean };
 type Option = { id: string; name: string };
@@ -35,7 +35,7 @@ type Asset = {
   assignedProfileId: string;
   notes: string;
 };
-type Assignment = { id: string; assetId: string; assignedToType: AssignmentType; memberId: string; departmentId: string; profileId: string; checkedOutAt: string; checkedInAt: string; conditionOut: string; conditionIn: string; notes: string };
+type Assignment = { id: string; assetId: string; assignedToType: AssignmentType; memberId: string; departmentId: string; profileId: string; assignedRole: string; assignedLocation: string; checkedOutAt: string; checkedInAt: string; expectedReturnDate: string; conditionOut: string; conditionIn: string; notes: string };
 type Maintenance = { id: string; assetId: string; maintenanceDate: string; maintenanceType: string; serviceProvider: string; maintenanceCost: number; nextMaintenanceDate: string; status: string; notes: string };
 type InventoryItem = { id: string; itemNumber: string; name: string; category: string; description: string; quantity: number; reorderLevel: number; unitCost: number; supplier: string; location: string; notes: string };
 type Purchase = { id: string; inventoryItemId: string; purchaseDate: string; quantity: number; unitCost: number; supplier: string; receiptReference: string; notes: string };
@@ -44,7 +44,7 @@ type Adjustment = { id: string; inventoryItemId: string; adjustmentDate: string;
 const emptyAsset: Asset = { id: "", assetNumber: "", name: "", categoryId: "", categoryName: "", description: "", serialNumber: "", purchaseDate: "", purchaseCost: 0, currentValue: 0, location: "", status: "available", assignedMemberId: "", assignedDepartmentId: "", assignedProfileId: "", notes: "" };
 const emptyInventory: InventoryItem = { id: "", itemNumber: "", name: "", category: "", description: "", quantity: 0, reorderLevel: 0, unitCost: 0, supplier: "", location: "", notes: "" };
 const emptyMaintenance = { assetId: "", maintenanceDate: new Date().toISOString().slice(0, 10), maintenanceType: "scheduled", serviceProvider: "", maintenanceCost: 0, nextMaintenanceDate: "", status: "scheduled", notes: "" };
-const emptyAssignment = { assetId: "", assignedToType: "member" as AssignmentType, memberId: "", departmentId: "", profileId: "", conditionOut: "", notes: "" };
+const emptyAssignment = { assetId: "", assignedToType: "member" as AssignmentType, memberId: "", departmentId: "", profileId: "", assignedRole: "", assignedLocation: "", checkedOutAt: new Date().toISOString().slice(0, 16), expectedReturnDate: "", conditionOut: "", notes: "" };
 const emptyPurchase = { inventoryItemId: "", purchaseDate: new Date().toISOString().slice(0, 10), quantity: 1, unitCost: 0, supplier: "", receiptReference: "", notes: "" };
 const emptyAdjustment = { inventoryItemId: "", quantityChange: 0, reason: "", notes: "" };
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
@@ -67,7 +67,7 @@ function titleCase(value: string) {
 
 function statusTone(status: string) {
   if (status === "available" || status === "completed") return "green";
-  if (status === "in_use" || status === "scheduled") return "blue";
+  if (status === "assigned" || status === "in_use" || status === "scheduled") return "blue";
   if (status === "under_maintenance" || status === "in_progress") return "gold";
   if (status === "lost") return "red";
   return "slate";
@@ -92,6 +92,10 @@ function nextNumber(prefix: string, values: string[]) {
   return `${prefix}-${year}-${String(max + 1).padStart(3, "0")}`;
 }
 
+function newAssignmentForm(assetId = "") {
+  return { ...emptyAssignment, assetId, checkedOutAt: new Date().toISOString().slice(0, 16) };
+}
+
 function downloadWorkbook(name: string, worksheet: string, headers: string[], rows: string[][]) {
   const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
   const row = (values: string[]) => `<Row>${values.map((value) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`;
@@ -114,7 +118,6 @@ export function AssetInventoryManagement() {
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [members, setMembers] = useState<Option[]>([]);
   const [departments, setDepartments] = useState<Option[]>([]);
-  const [pastors, setPastors] = useState<Option[]>([]);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("assets");
   const [query, setQuery] = useState("");
@@ -144,7 +147,7 @@ export function AssetInventoryManagement() {
   }, [assets, query]);
   const stats = [
     { label: "Total Assets", value: assets.length, icon: Archive, tone: "bg-blue-50 text-churchblue" },
-    { label: "Assets In Use", value: assets.filter((asset) => asset.status === "in_use").length, icon: ClipboardCheck, tone: "bg-cyan-50 text-cyan-700" },
+    { label: "Assets Assigned", value: assets.filter((asset) => asset.status === "assigned" || asset.status === "in_use").length, icon: ClipboardCheck, tone: "bg-cyan-50 text-cyan-700" },
     { label: "Under Maintenance", value: assets.filter((asset) => asset.status === "under_maintenance").length, icon: Wrench, tone: "bg-amber-50 text-amber-700" },
     { label: "Assets Available", value: assets.filter((asset) => asset.status === "available").length, icon: LogIn, tone: "bg-emerald-50 text-emerald-700" },
     { label: "Total Asset Value", value: currency.format(assets.reduce((sum, asset) => sum + asset.currentValue, 0)), icon: FileSpreadsheet, tone: "bg-purple-50 text-purple-700" },
@@ -163,7 +166,7 @@ export function AssetInventoryManagement() {
       const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
       setRoles(normalizeRoles((roleRows ?? []).map(({ role }) => role)));
     }
-    const [categoryResult, assetResult, assignmentResult, maintenanceResult, inventoryResult, purchaseResult, adjustmentResult, memberResult, departmentResult, profileResult] = await Promise.all([
+    const [categoryResult, assetResult, assignmentResult, maintenanceResult, inventoryResult, purchaseResult, adjustmentResult, memberResult, departmentResult] = await Promise.all([
       supabase.from("asset_categories").select("id, name, is_active").order("name"),
       supabase.from("assets").select("*").order("created_at", { ascending: false }),
       supabase.from("asset_assignments").select("*").order("checked_out_at", { ascending: false }),
@@ -173,7 +176,6 @@ export function AssetInventoryManagement() {
       supabase.from("inventory_adjustments").select("*").order("created_at", { ascending: false }),
       supabase.from("members").select("id, member_id, full_name, first_name, last_name").eq("status", "active").order("full_name"),
       supabase.from("departments").select("id, name").eq("is_active", true).order("name"),
-      supabase.from("profiles").select("id, full_name, email, user_roles(role)").eq("is_active", true).order("full_name"),
     ]);
     if (assetResult.error || categoryResult.error) setError(`${assetResult.error?.message ?? categoryResult.error?.message}. Apply migration 202606120002_asset_inventory_management.sql in Supabase.`);
     const categoryRows = (categoryResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: Boolean(category.is_active) }));
@@ -197,14 +199,13 @@ export function AssetInventoryManagement() {
       assignedProfileId: row.assigned_profile_id ?? "",
       notes: row.notes ?? "",
     })));
-    setAssignments((assignmentResult.data ?? []).map((row) => ({ id: row.id, assetId: row.asset_id, assignedToType: row.assigned_to_type, memberId: row.member_id ?? "", departmentId: row.department_id ?? "", profileId: row.profile_id ?? "", checkedOutAt: row.checked_out_at ?? "", checkedInAt: row.checked_in_at ?? "", conditionOut: row.condition_out ?? "", conditionIn: row.condition_in ?? "", notes: row.notes ?? "" })));
+    setAssignments((assignmentResult.data ?? []).map((row) => ({ id: row.id, assetId: row.asset_id, assignedToType: row.assigned_to_type, memberId: row.member_id ?? "", departmentId: row.department_id ?? "", profileId: row.profile_id ?? "", assignedRole: row.assigned_role ?? "", assignedLocation: row.assigned_location ?? "", checkedOutAt: row.checked_out_at ?? "", checkedInAt: row.checked_in_at ?? "", expectedReturnDate: row.expected_return_date ?? "", conditionOut: row.condition_out ?? "", conditionIn: row.condition_in ?? "", notes: row.notes ?? "" })));
     setMaintenance((maintenanceResult.data ?? []).map((row) => ({ id: row.id, assetId: row.asset_id, maintenanceDate: row.maintenance_date ?? "", maintenanceType: row.maintenance_type ?? "", serviceProvider: row.service_provider ?? "", maintenanceCost: Number(row.maintenance_cost ?? 0), nextMaintenanceDate: row.next_maintenance_date ?? "", status: row.status ?? "scheduled", notes: row.notes ?? "" })));
     setInventory((inventoryResult.data ?? []).map((row) => ({ id: row.id, itemNumber: row.item_number, name: row.name, category: row.category ?? "", description: row.description ?? "", quantity: Number(row.quantity ?? 0), reorderLevel: Number(row.reorder_level ?? 0), unitCost: Number(row.unit_cost ?? 0), supplier: row.supplier ?? "", location: row.location ?? "", notes: row.notes ?? "" })));
     setPurchases((purchaseResult.data ?? []).map((row) => ({ id: row.id, inventoryItemId: row.inventory_item_id, purchaseDate: row.purchase_date ?? "", quantity: Number(row.quantity ?? 0), unitCost: Number(row.unit_cost ?? 0), supplier: row.supplier ?? "", receiptReference: row.receipt_reference ?? "", notes: row.notes ?? "" })));
     setAdjustments((adjustmentResult.data ?? []).map((row) => ({ id: row.id, inventoryItemId: row.inventory_item_id, adjustmentDate: row.adjustment_date ?? "", quantityChange: Number(row.quantity_change ?? 0), reason: row.reason ?? "", notes: row.notes ?? "" })));
     setMembers((memberResult.data ?? []).map((member) => ({ id: member.id, name: member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_id || "Member" })));
     setDepartments((departmentResult.data ?? []).map((department) => ({ id: department.id, name: department.name })));
-    setPastors((profileResult.data ?? []).filter((profile) => normalizeRoles(((profile.user_roles ?? []) as { role?: string }[]).map(({ role }) => role)).includes("pastor")).map((profile) => ({ id: profile.id, name: profile.full_name ?? profile.email ?? "Pastor" })));
     setLoading(false);
   }
 
@@ -216,6 +217,11 @@ export function AssetInventoryManagement() {
   function openInventoryForm(item?: InventoryItem) {
     setInventoryForm(item ?? { ...emptyInventory, itemNumber: nextNumber("INV", inventory.map((record) => record.itemNumber)) });
     setShowInventoryForm(true);
+  }
+
+  function openAssignmentForm(assetId = "") {
+    setAssignmentForm(newAssignmentForm(assetId));
+    setShowAssignmentForm(true);
   }
 
   async function saveAsset(event: FormEvent<HTMLFormElement>) {
@@ -261,30 +267,39 @@ export function AssetInventoryManagement() {
     event.preventDefault();
     if (!canManageRecords) { setError("Only Admin or Secretary can manage assignments."); return; }
     if (!assignmentForm.assetId) { setError("Select an asset to assign."); return; }
+    if (assignmentForm.assignedToType === "member" && !assignmentForm.memberId) { setError("Select the assigned member."); return; }
+    if (assignmentForm.assignedToType === "department" && !assignmentForm.departmentId) { setError("Select the assigned department."); return; }
+    if (assignmentForm.assignedToType === "church_role" && !assignmentForm.assignedRole) { setError("Select the assigned church role."); return; }
+    if (assignmentForm.assignedToType === "location" && !assignmentForm.assignedLocation.trim()) { setError("Enter the assigned location."); return; }
+    setSaving(true);
     const supabase = createClient();
     if (supabase) {
       const { data: { user } } = await supabase.auth.getUser();
-      const { error: assignError } = await supabase.from("asset_assignments").insert({ asset_id: assignmentForm.assetId, assigned_to_type: assignmentForm.assignedToType, member_id: assignmentForm.assignedToType === "member" ? assignmentForm.memberId || null : null, department_id: assignmentForm.assignedToType === "department" ? assignmentForm.departmentId || null : null, profile_id: assignmentForm.assignedToType === "pastor" ? assignmentForm.profileId || null : null, condition_out: assignmentForm.conditionOut || null, notes: assignmentForm.notes || null, recorded_by: user?.id ?? null });
-      if (assignError) { setError(assignError.message); return; }
-      const { error: assetError } = await supabase.from("assets").update({ status: "in_use", assigned_member_id: assignmentForm.assignedToType === "member" ? assignmentForm.memberId || null : null, assigned_department_id: assignmentForm.assignedToType === "department" ? assignmentForm.departmentId || null : null, assigned_profile_id: assignmentForm.assignedToType === "pastor" ? assignmentForm.profileId || null : null }).eq("id", assignmentForm.assetId);
-      if (assetError) { setError(assetError.message); return; }
+      const checkedOutAt = assignmentForm.checkedOutAt ? new Date(assignmentForm.checkedOutAt).toISOString() : new Date().toISOString();
+      const { error: assignError } = await supabase.from("asset_assignments").insert({ asset_id: assignmentForm.assetId, assigned_to_type: assignmentForm.assignedToType, member_id: assignmentForm.assignedToType === "member" ? assignmentForm.memberId || null : null, department_id: assignmentForm.assignedToType === "department" ? assignmentForm.departmentId || null : null, profile_id: null, assigned_role: assignmentForm.assignedToType === "church_role" ? assignmentForm.assignedRole || null : null, assigned_location: assignmentForm.assignedToType === "location" ? assignmentForm.assignedLocation.trim() : null, checked_out_at: checkedOutAt, expected_return_date: assignmentForm.expectedReturnDate || null, condition_out: assignmentForm.conditionOut || null, notes: assignmentForm.notes || null, recorded_by: user?.id ?? null });
+      if (assignError) { setError(assignError.message); setSaving(false); return; }
+      const { error: assetError } = await supabase.from("assets").update({ status: "assigned", assigned_member_id: assignmentForm.assignedToType === "member" ? assignmentForm.memberId || null : null, assigned_department_id: assignmentForm.assignedToType === "department" ? assignmentForm.departmentId || null : null, assigned_profile_id: null }).eq("id", assignmentForm.assetId);
+      if (assetError) { setError(assetError.message); setSaving(false); return; }
     }
-    setNotice("Asset checked out.");
+    setNotice("Asset assigned.");
     setAssignmentForm(emptyAssignment);
     setShowAssignmentForm(false);
+    setSaving(false);
     await loadData();
   }
 
   async function checkInAssignment(assignment: Assignment) {
     if (!canManageRecords) { setError("Only Admin or Secretary can manage assignments."); return; }
+    setSaving(true);
     const supabase = createClient();
     if (supabase) {
       const { error: assignmentError } = await supabase.from("asset_assignments").update({ checked_in_at: new Date().toISOString(), condition_in: assignment.conditionIn || null }).eq("id", assignment.id);
-      if (assignmentError) { setError(assignmentError.message); return; }
+      if (assignmentError) { setError(assignmentError.message); setSaving(false); return; }
       const { error: assetError } = await supabase.from("assets").update({ status: "available", assigned_member_id: null, assigned_department_id: null, assigned_profile_id: null }).eq("id", assignment.assetId);
-      if (assetError) { setError(assetError.message); return; }
+      if (assetError) { setError(assetError.message); setSaving(false); return; }
     }
     setNotice("Asset checked in.");
+    setSaving(false);
     await loadData();
   }
 
@@ -353,7 +368,9 @@ export function AssetInventoryManagement() {
   function assigneeName(assignment: Assignment) {
     if (assignment.assignedToType === "member") return members.find((member) => member.id === assignment.memberId)?.name ?? "Member";
     if (assignment.assignedToType === "department") return departments.find((department) => department.id === assignment.departmentId)?.name ?? "Department";
-    return pastors.find((pastor) => pastor.id === assignment.profileId)?.name ?? "Pastor";
+    if (assignment.assignedToType === "pastor") return "Pastor";
+    if (assignment.assignedToType === "church_role") return ROLE_LABELS[assignment.assignedRole as AppRole] ?? titleCase(assignment.assignedRole);
+    return assignment.assignedLocation || "Location";
   }
 
   function exportExcel() {
@@ -403,15 +420,15 @@ export function AssetInventoryManagement() {
       </div>
 
       {activeTab === "assets" && <AssetsTab assets={filteredAssets} loading={loading} canManage={canManageValues} query={query} setQuery={setQuery} onEdit={openAssetForm} />}
-      {activeTab === "assignments" && <AssignmentsTab assets={assets} assignments={assignments} canManage={canManageRecords} assetName={assetName} assigneeName={assigneeName} onAdd={() => setShowAssignmentForm(true)} onCheckIn={checkInAssignment} />}
+      {activeTab === "assignments" && <AssignmentsTab assets={assets} assignments={assignments} canManage={canManageRecords} assetName={assetName} assigneeName={assigneeName} onAdd={() => openAssignmentForm()} onCheckIn={checkInAssignment} />}
       {activeTab === "maintenance" && <MaintenanceTab maintenance={maintenance} canManage={canManageValues} assetName={assetName} onAdd={() => setShowMaintenanceForm(true)} />}
       {activeTab === "inventory" && <InventoryTab inventory={inventory} purchases={purchases} adjustments={adjustments} canManage={canManageValues} inventoryName={inventoryName} onAdd={() => openInventoryForm()} onEdit={openInventoryForm} onPurchase={() => setShowPurchaseForm(true)} onAdjust={() => setShowAdjustmentForm(true)} />}
-      {activeTab === "qr" && <QrTab assets={assets} scanCode={scanCode} setScanCode={setScanCode} scannedAsset={scannedAsset} onCheckOut={(assetId) => { setAssignmentForm({ ...emptyAssignment, assetId }); setShowAssignmentForm(true); }} />}
+      {activeTab === "qr" && <QrTab assets={assets} scanCode={scanCode} setScanCode={setScanCode} scannedAsset={scannedAsset} onCheckOut={openAssignmentForm} />}
       {activeTab === "reports" && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">{reportRows.map(([label, value]) => <Card className="p-5" key={label}><p className="text-sm font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-navy">{value}</p></Card>)}</section>}
 
       {showAssetForm && <AssetModal form={assetForm} setForm={setAssetForm} categories={categories} saving={saving} onClose={() => setShowAssetForm(false)} onSubmit={saveAsset} />}
       {showInventoryForm && <InventoryModal form={inventoryForm} setForm={setInventoryForm} saving={saving} onClose={() => setShowInventoryForm(false)} onSubmit={saveInventory} />}
-      {showAssignmentForm && <AssignmentModal form={assignmentForm} setForm={setAssignmentForm} assets={assets.filter((asset) => asset.status === "available" || asset.id === assignmentForm.assetId)} members={members} departments={departments} pastors={pastors} saving={saving} onClose={() => setShowAssignmentForm(false)} onSubmit={checkOutAsset} />}
+      {showAssignmentForm && <AssignmentModal form={assignmentForm} setForm={setAssignmentForm} assets={assets.filter((asset) => asset.status === "available" || asset.id === assignmentForm.assetId)} members={members} departments={departments} saving={saving} onClose={() => setShowAssignmentForm(false)} onSubmit={checkOutAsset} />}
       {showMaintenanceForm && <MaintenanceModal form={maintenanceForm} setForm={setMaintenanceForm} assets={assets} saving={saving} onClose={() => setShowMaintenanceForm(false)} onSubmit={saveMaintenance} />}
       {showPurchaseForm && <PurchaseModal form={purchaseForm} setForm={setPurchaseForm} inventory={inventory} saving={saving} onClose={() => setShowPurchaseForm(false)} onSubmit={savePurchase} />}
       {showAdjustmentForm && <AdjustmentModal form={adjustmentForm} setForm={setAdjustmentForm} inventory={inventory} saving={saving} onClose={() => setShowAdjustmentForm(false)} onSubmit={saveAdjustment} />}
@@ -424,7 +441,7 @@ function AssetsTab({ assets, loading, canManage, query, setQuery, onEdit }: { as
 }
 
 function AssignmentsTab({ assignments, canManage, assetName, assigneeName, onAdd, onCheckIn }: { assets: Asset[]; assignments: Assignment[]; canManage: boolean; assetName: (id: string) => string; assigneeName: (assignment: Assignment) => string; onAdd: () => void; onCheckIn: (assignment: Assignment) => void }) {
-  return <Card><div className="flex justify-between gap-3 border-b border-slate-100 p-4"><h2 className="font-bold text-navy">Assignment History</h2>{canManage && <Button size="sm" onClick={onAdd}><LogOut className="h-4 w-4" /> Check Out Asset</Button>}</div><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead><tr className="bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Asset", "Assigned To", "Checked Out", "Checked In", "Condition", "Actions"].map((label) => <th className="px-5 py-3.5" key={label}>{label}</th>)}</tr></thead><tbody>{assignments.map((assignment) => <tr className="border-t border-slate-100" key={assignment.id}><td className="px-5 py-4 font-semibold text-navy">{assetName(assignment.assetId)}</td><td className="px-5 py-4 text-slate-600">{titleCase(assignment.assignedToType)} · {assigneeName(assignment)}</td><td className="px-5 py-4 text-slate-600">{assignment.checkedOutAt.slice(0, 16).replace("T", " ")}</td><td className="px-5 py-4 text-slate-600">{assignment.checkedInAt ? assignment.checkedInAt.slice(0, 16).replace("T", " ") : "-"}</td><td className="px-5 py-4 text-slate-600">{assignment.conditionOut || "-"}</td><td className="px-5 py-4">{canManage && !assignment.checkedInAt && <Button size="sm" variant="outline" onClick={() => onCheckIn(assignment)}><LogIn className="h-4 w-4" /> Check In</Button>}</td></tr>)}{assignments.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={6}>No assignment history yet.</td></tr>}</tbody></table></div></Card>;
+  return <Card><div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center"><h2 className="font-bold text-navy">Assignment History</h2>{canManage && <Button size="sm" onClick={onAdd}><LogOut className="h-4 w-4" /> Assign Asset</Button>}</div><div className="overflow-x-auto"><table className="w-full min-w-[1100px] text-left text-sm"><thead><tr className="bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Asset", "Assigned To", "Assignment Type", "Checked Out", "Expected Return", "Checked In", "Condition", "Actions"].map((label) => <th className="px-5 py-3.5" key={label}>{label}</th>)}</tr></thead><tbody>{assignments.map((assignment) => <tr className="border-t border-slate-100" key={assignment.id}><td className="px-5 py-4 font-semibold text-navy">{assetName(assignment.assetId)}</td><td className="px-5 py-4 text-slate-600">{assigneeName(assignment)}</td><td className="px-5 py-4 text-slate-600">{titleCase(assignment.assignedToType)}</td><td className="px-5 py-4 text-slate-600">{assignment.checkedOutAt.slice(0, 16).replace("T", " ")}</td><td className="px-5 py-4 text-slate-600">{assignment.expectedReturnDate || "-"}</td><td className="px-5 py-4 text-slate-600">{assignment.checkedInAt ? assignment.checkedInAt.slice(0, 16).replace("T", " ") : "-"}</td><td className="px-5 py-4 text-slate-600">{assignment.conditionOut || "-"}</td><td className="px-5 py-4">{canManage && !assignment.checkedInAt && <Button size="sm" variant="outline" onClick={() => onCheckIn(assignment)}><LogIn className="h-4 w-4" /> Check In</Button>}</td></tr>)}{assignments.length === 0 && <tr><td className="px-5 py-10 text-center text-slate-500" colSpan={8}>No assignment history yet.</td></tr>}</tbody></table></div></Card>;
 }
 
 function MaintenanceTab({ maintenance, canManage, assetName, onAdd }: { maintenance: Maintenance[]; canManage: boolean; assetName: (id: string) => string; onAdd: () => void }) {
@@ -448,7 +465,7 @@ function Info({ label, value }: { label: string; value: string }) {
 }
 
 function AssetModal({ form, setForm, categories, saving, onClose, onSubmit }: { form: Asset; setForm: (form: Asset) => void; categories: Category[]; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Asset Register" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3"><Input label="Asset ID" value={form.assetNumber} onChange={(value) => setForm({ ...form, assetNumber: value })} required /><Input label="Asset Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Select category</option>{categories.map((category) => <option disabled={!category.isActive} key={category.id} value={category.id}>{category.name}</option>)}</select></label><Input label="Serial Number" value={form.serialNumber} onChange={(value) => setForm({ ...form, serialNumber: value })} /><Input label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => setForm({ ...form, purchaseDate: value })} /><Input label="Purchase Cost" type="number" value={String(form.purchaseCost)} onChange={(value) => setForm({ ...form, purchaseCost: Number(value) })} /><Input label="Current Value" type="number" value={String(form.currentValue)} onChange={(value) => setForm({ ...form, currentValue: Number(value) })} /><Input label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><Select label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value as AssetStatus })} options={["available", "in_use", "under_maintenance", "retired", "lost"]} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Description<textarea className={textareaClass} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Notes<textarea className={textareaClass} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Asset" onClose={onClose} /></form></Modal>;
+  return <Modal title="Asset Register" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3"><Input label="Asset ID" value={form.assetNumber} onChange={(value) => setForm({ ...form, assetNumber: value })} required /><Input label="Asset Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}><option value="">Select category</option>{categories.map((category) => <option disabled={!category.isActive} key={category.id} value={category.id}>{category.name}</option>)}</select></label><Input label="Serial Number" value={form.serialNumber} onChange={(value) => setForm({ ...form, serialNumber: value })} /><Input label="Purchase Date" type="date" value={form.purchaseDate} onChange={(value) => setForm({ ...form, purchaseDate: value })} /><Input label="Purchase Cost" type="number" value={String(form.purchaseCost)} onChange={(value) => setForm({ ...form, purchaseCost: Number(value) })} /><Input label="Current Value" type="number" value={String(form.currentValue)} onChange={(value) => setForm({ ...form, currentValue: Number(value) })} /><Input label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><Select label="Status" value={form.status} onChange={(value) => setForm({ ...form, status: value as AssetStatus })} options={["available", "assigned", "in_use", "under_maintenance", "retired", "lost"]} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Description<textarea className={textareaClass} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Notes<textarea className={textareaClass} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Asset" onClose={onClose} /></form></Modal>;
 }
 
 function InventoryModal({ form, setForm, saving, onClose, onSubmit }: { form: InventoryItem; setForm: (form: InventoryItem) => void; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -456,8 +473,8 @@ function InventoryModal({ form, setForm, saving, onClose, onSubmit }: { form: In
   return <Modal title="Inventory Item" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3"><Input label="Item ID" value={form.itemNumber} onChange={(value) => setForm({ ...form, itemNumber: value })} required /><Input label="Item Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}><option value="">Select category</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><Input label="Quantity" type="number" value={String(form.quantity)} onChange={(value) => setForm({ ...form, quantity: Number(value) })} /><Input label="Reorder Level" type="number" value={String(form.reorderLevel)} onChange={(value) => setForm({ ...form, reorderLevel: Number(value) })} /><Input label="Unit Cost" type="number" value={String(form.unitCost)} onChange={(value) => setForm({ ...form, unitCost: Number(value) })} /><Input label="Supplier" value={form.supplier} onChange={(value) => setForm({ ...form, supplier: value })} /><Input label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Description<textarea className={textareaClass} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Item" onClose={onClose} /></form></Modal>;
 }
 
-function AssignmentModal({ form, setForm, assets, members, departments, pastors, saving, onClose, onSubmit }: { form: typeof emptyAssignment; setForm: (form: typeof emptyAssignment) => void; assets: Asset[]; members: Option[]; departments: Option[]; pastors: Option[]; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Asset Check-Out" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Asset<select className={fieldClass} required value={form.assetId} onChange={(event) => setForm({ ...form, assetId: event.target.value })}><option value="">Select asset</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} ({asset.assetNumber})</option>)}</select></label><Select label="Assign To" value={form.assignedToType} onChange={(value) => setForm({ ...form, assignedToType: value as AssignmentType, memberId: "", departmentId: "", profileId: "" })} options={["member", "department", "pastor"]} /><AssigneeSelect label="Member" disabled={form.assignedToType !== "member"} options={members} value={form.memberId} onChange={(value) => setForm({ ...form, memberId: value })} /><AssigneeSelect label="Department" disabled={form.assignedToType !== "department"} options={departments} value={form.departmentId} onChange={(value) => setForm({ ...form, departmentId: value })} /><AssigneeSelect label="Pastor" disabled={form.assignedToType !== "pastor"} options={pastors} value={form.profileId} onChange={(value) => setForm({ ...form, profileId: value })} /><Input label="Condition Out" value={form.conditionOut} onChange={(value) => setForm({ ...form, conditionOut: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className={textareaClass} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><ModalActions saving={saving} label="Check Out" onClose={onClose} /></form></Modal>;
+function AssignmentModal({ form, setForm, assets, members, departments, saving, onClose, onSubmit }: { form: typeof emptyAssignment; setForm: (form: typeof emptyAssignment) => void; assets: Asset[]; members: Option[]; departments: Option[]; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <Modal title="Assign Asset" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700">Asset<select className={fieldClass} required value={form.assetId} onChange={(event) => setForm({ ...form, assetId: event.target.value })}><option value="">Select asset</option>{assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} ({asset.assetNumber})</option>)}</select></label><Select label="Assignment Type" value={form.assignedToType} onChange={(value) => setForm({ ...form, assignedToType: value as AssignmentType, memberId: "", departmentId: "", profileId: "", assignedRole: "", assignedLocation: "" })} options={["member", "department", "church_role", "location"]} /><AssigneeSelect label="Member" disabled={form.assignedToType !== "member"} options={members} value={form.memberId} onChange={(value) => setForm({ ...form, memberId: value })} /><AssigneeSelect label="Department" disabled={form.assignedToType !== "department"} options={departments} value={form.departmentId} onChange={(value) => setForm({ ...form, departmentId: value })} /><label className="text-sm font-semibold text-slate-700">Church Role<select className={fieldClass} disabled={form.assignedToType !== "church_role"} value={form.assignedRole} onChange={(event) => setForm({ ...form, assignedRole: event.target.value })}><option value="">{form.assignedToType === "church_role" ? "Select church role" : "Choose church role type first"}</option>{APP_ROLES.filter((role) => role !== "member").map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></label><Input label="Location" value={form.assignedLocation} onChange={(value) => setForm({ ...form, assignedLocation: value })} disabled={form.assignedToType !== "location"} placeholder={form.assignedToType === "location" ? "Sanctuary, Media room, Office..." : "Choose location type first"} /><Input label="Check Out Date" type="datetime-local" value={form.checkedOutAt} onChange={(value) => setForm({ ...form, checkedOutAt: value })} required /><Input label="Expected Return Date" type="date" value={form.expectedReturnDate} onChange={(value) => setForm({ ...form, expectedReturnDate: value })} /><Input label="Condition" value={form.conditionOut} onChange={(value) => setForm({ ...form, conditionOut: value })} placeholder="Good, needs cable, minor scratches..." /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Notes<textarea className={textareaClass} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label></div><ModalActions saving={saving} label="Assign Asset" onClose={onClose} /></form></Modal>;
 }
 
 function MaintenanceModal({ form, setForm, assets, saving, onClose, onSubmit }: { form: typeof emptyMaintenance; setForm: (form: typeof emptyMaintenance) => void; assets: Asset[]; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -480,8 +497,8 @@ function ModalActions({ saving, label, onClose }: { saving: boolean; label: stri
   return <div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white p-4"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : label}</Button></div>;
 }
 
-function Input({ label, value, onChange, type = "text", required = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean }) {
-  return <label className="text-sm font-semibold text-slate-700">{label}<input className={fieldClass} required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function Input({ label, value, onChange, type = "text", required = false, disabled = false, placeholder = "" }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; disabled?: boolean; placeholder?: string }) {
+  return <label className="text-sm font-semibold text-slate-700">{label}<input className={fieldClass} disabled={disabled} placeholder={placeholder} required={required} type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
