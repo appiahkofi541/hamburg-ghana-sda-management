@@ -60,6 +60,7 @@ export const ROUTE_ROLES: Record<string, AppRole[]> = {
   "/event-attendance": ["super_admin", "secretary"],
   "/announcements": allRoles,
   "/communications": ["super_admin", "pastor", "secretary", "treasurer"],
+  "/assets": ["super_admin", "secretary", "treasurer", "pastor"],
   "/prayer-requests": allRoles,
   "/sermons": allRoles,
   "/livestream": allRoles,

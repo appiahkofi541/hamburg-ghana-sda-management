@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
+  Archive, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
   BadgeEuro, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, RefreshCw, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, UsersRound, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -34,6 +34,7 @@ const nav = [
   { labelKey: "nav.eventAttendance", href: "/event-attendance", icon: ClipboardCheck },
   { labelKey: "nav.announcements", href: "/announcements", icon: Megaphone },
   { labelKey: "nav.communications", href: "/communications", icon: Mail },
+  { labelKey: "nav.assets", href: "/assets", icon: Archive },
   { labelKey: "nav.prayerRequests", href: "/prayer-requests", icon: HeartHandshake },
   { labelKey: "nav.sermonArchive", href: "/sermons", icon: Library },
   { labelKey: "nav.livestream", href: "/livestream", icon: RadioTower },

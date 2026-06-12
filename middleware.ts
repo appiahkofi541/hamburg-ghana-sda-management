@@ -20,6 +20,7 @@ export const config = {
     "/sermons/:path*",
     "/livestream/:path*",
     "/whatsapp/:path*",
+    "/assets/:path*",
     "/reports/:path*",
     "/advanced-modules/:path*",
     "/settings/:path*",
