@@ -17,6 +17,7 @@ import { useT } from "@/components/language-provider";
 import { MemberAvatar } from "@/components/member-avatar";
 import { uploadMemberPhoto, validateMemberPhoto } from "@/lib/member-photos";
 import { fallbackChurchProfile, loadPublicChurchProfile, type ChurchProfile } from "@/lib/church-profile";
+import { normalizeRoles } from "@/lib/auth";
 
 type MemberStatus = "Active" | "Inactive" | "Transferred" | "Deceased";
 type MemberRecord = {
@@ -124,9 +125,9 @@ export function MemberManagement() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          const roleNames = (roleRows ?? []).map(({ role }) => String(role));
+          const roleNames = normalizeRoles((roleRows ?? []).map(({ role }) => role));
           setCanManage(roleNames.some((role) => ["super_admin", "pastor", "elder", "church_clerk", "secretary"].includes(role)));
-          setCanGenerateCards(roleNames.some((role) => ["super_admin", "admin", "secretary"].includes(role)));
+          setCanGenerateCards(roleNames.some((role) => ["super_admin", "secretary"].includes(role)));
         }
         const [{ data, error: loadError }, { data: departmentRows }, profile] = await Promise.all([
           supabase.from("members").select("*, department_members(department_id, departments(name, is_active))").order("last_name"),
@@ -187,6 +188,8 @@ export function MemberManagement() {
     setEditing(member ?? null);
     setForm(member ?? { ...emptyMember, memberId: `HG-${String(records.length + 1).padStart(3, "0")}` });
     setPhotoFile(null);
+    setError("");
+    setNotice("");
   }
 
   function closeForm() {
@@ -208,54 +211,73 @@ export function MemberManagement() {
     const validationError = required(form.memberId, "Member ID") || required(form.firstName, "First name") || required(form.lastName, "Last name") || validEmail(form.email);
     if (validationError) { setError(validationError); return; }
     if (!canManage) { setError("You have read-only access to member records."); return; }
+    setError("");
+    setNotice("");
     setSaving(true);
     const supabase = createClient();
     let saved = { ...form, id: editing?.id ?? crypto.randomUUID() };
 
-    if (supabase) {
-      const request = editing
-        ? supabase.from("members").update(memberPayload(form)).eq("id", editing.id).select().single()
-        : supabase.from("members").insert(memberPayload(form)).select().single();
-      const { data, error } = await request;
-      if (error) {
-        setError(`Unable to save member: ${error.message}`);
-        setSaving(false);
-        return;
-      }
-      saved = { ...saved, id: data.id };
-      if (photoFile) {
-        try {
-          const uploaded = await uploadMemberPhoto(supabase, saved.id, photoFile);
-          saved = { ...saved, photoUrl: uploaded.photoUrl, photoThumbnailUrl: uploaded.thumbnailUrl };
-        } catch (photoError) {
-          setError(`Member saved, but profile photo upload failed: ${photoError instanceof Error ? photoError.message : "Unknown error"}`);
-          setSaving(false);
+    try {
+      if (supabase) {
+        const request = editing
+          ? supabase.from("members").update(memberPayload(form)).eq("id", editing.id).select().single()
+          : supabase.from("members").insert(memberPayload(form)).select().single();
+        const { data, error } = await request;
+        if (error) {
+          console.error("Unable to save member", error);
+          setError(`Unable to save member: ${error.message}`);
           return;
         }
-      }
-      const { error: membershipDeleteError } = await supabase.from("department_members").delete().eq("member_id", saved.id);
-      if (membershipDeleteError) {
-        setError(`Member saved, but the department assignment could not be updated: ${membershipDeleteError.message}`);
-        setSaving(false);
-        return;
-      }
-      if (form.departmentId) {
-        const department = departments.find((item) => item.id === form.departmentId);
-        const { error: membershipInsertError } = await supabase.from("department_members").insert({ member_id: saved.id, department_id: form.departmentId });
-        if (membershipInsertError) {
-          setError(`Member saved, but the department assignment could not be updated: ${membershipInsertError.message}`);
-          setSaving(false);
-          return;
+        saved = {
+          ...saved,
+          id: data.id,
+          photoUrl: data.photo_url ?? saved.photoUrl,
+          photoThumbnailUrl: data.photo_thumbnail_url ?? saved.photoThumbnailUrl,
+        };
+        if (photoFile) {
+          try {
+            const uploaded = await uploadMemberPhoto(supabase, saved.id, photoFile);
+            saved = { ...saved, photoUrl: uploaded.photoUrl, photoThumbnailUrl: uploaded.thumbnailUrl };
+          } catch (photoError) {
+            console.error("Unable to upload member photo", photoError);
+            setError(`Member saved, but profile photo upload failed: ${photoError instanceof Error ? photoError.message : "Unknown error"}`);
+            return;
+          }
         }
-        saved = { ...saved, departmentId: form.departmentId, department: department?.name ?? form.department };
-      }
-    }
 
-    setRecords((current) => editing ? current.map((member) => member.id === editing.id ? saved : member) : [saved, ...current]);
-    setNotice(editing ? "Member record updated." : "New member added.");
-    setError("");
-    setSaving(false);
-    closeForm();
+        const departmentChanged = editing ? editing.departmentId !== form.departmentId : Boolean(form.departmentId);
+        if (departmentChanged) {
+          const { error: membershipDeleteError } = await supabase.from("department_members").delete().eq("member_id", saved.id);
+          if (membershipDeleteError) {
+            console.error("Unable to update member department assignment", membershipDeleteError);
+            setError(`Member details were saved, but the department assignment could not be updated: ${membershipDeleteError.message}`);
+            return;
+          }
+          if (form.departmentId) {
+            const department = departments.find((item) => item.id === form.departmentId);
+            const { error: membershipInsertError } = await supabase.from("department_members").insert({ member_id: saved.id, department_id: form.departmentId });
+            if (membershipInsertError) {
+              console.error("Unable to update member department assignment", membershipInsertError);
+              setError(`Member details were saved, but the department assignment could not be updated: ${membershipInsertError.message}`);
+              return;
+            }
+            saved = { ...saved, departmentId: form.departmentId, department: department?.name ?? form.department };
+          } else {
+            saved = { ...saved, departmentId: "", department: "" };
+          }
+        }
+      }
+
+      setRecords((current) => editing ? current.map((member) => member.id === editing.id ? saved : member) : [saved, ...current]);
+      setNotice(editing ? "Member record updated." : "New member added.");
+      setError("");
+      closeForm();
+    } catch (saveError) {
+      console.error("Unable to save member", saveError);
+      setError(`Unable to save member: ${saveError instanceof Error ? saveError.message : "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteMember(member: MemberRecord) {
@@ -524,6 +546,7 @@ export function MemberManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <form className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-2xl" onSubmit={saveMember}>
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><div><h2 className="font-bold text-navy">{editing ? "Edit Member" : "Add Member"}</h2><p className="mt-1 text-xs text-slate-400">Hamburg Ghana SDA Church membership record</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close member form" onClick={closeForm}><X className="h-5 w-5" /></Button></div>
+            {error && <div className="mx-5 mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div>}
             <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 ["Member ID", "memberId", "text"], ["First Name", "firstName", "text"], ["Last Name", "lastName", "text"],
