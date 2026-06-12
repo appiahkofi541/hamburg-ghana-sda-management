@@ -214,7 +214,10 @@ export function EventRegistrationAttendance({ initialMode = "registrations" }: {
 
   return (
     <div className="space-y-6">
-      <PageHeading title={mode === "attendance" ? "Event Attendance" : "Event Registrations"} description="Manage event registrations, check attendance, and export event reports." />
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <PageHeading title={mode === "attendance" ? "Event Attendance" : "Event Registrations"} description="View event registrations, attendance information, and export event reports." />
+        <StatusBadge tone={canManage ? "green" : "slate"}>{canManage ? "Attendance management access" : "Read-only access"}</StatusBadge>
+      </div>
       {notice && <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-churchblue"><span>{notice}</span><button aria-label="Dismiss notice" onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}
       {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p>}
 
