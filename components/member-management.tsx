@@ -309,6 +309,27 @@ export function MemberManagement() {
     return `${member.firstName} ${member.lastName}`.trim();
   }
 
+  function initialsFromText(value: string) {
+    const parts = value.trim().split(/\s+/).filter(Boolean);
+    return (parts.length ? parts : ["HG"]).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  }
+
+  function issueDate() {
+    return new Date().toLocaleDateString("en-GB");
+  }
+
+  function expiryYear() {
+    return String(new Date().getFullYear() + 2);
+  }
+
+  function escapeHtml(value: string) {
+    return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+  }
+
+  function imageFormat(dataUrl: string) {
+    return dataUrl.startsWith("data:image/png") ? "PNG" : "JPEG";
+  }
+
   function memberLookupUrl(member: MemberRecord) {
     const baseUrl = typeof window === "undefined" ? "https://hamburg-ghana-sda-management.vercel.app" : window.location.origin;
     return `${baseUrl}/members/lookup/${encodeURIComponent(member.memberId)}`;
@@ -339,47 +360,76 @@ export function MemberManagement() {
     const [logoData, photoData, qrData] = await Promise.all([
       imageToDataUrl(churchProfile.logo_url),
       imageToDataUrl(member.photoThumbnailUrl || member.photoUrl),
-      imageToDataUrl(qrImageUrl(member, 260)),
+      imageToDataUrl(qrImageUrl(member, 220)),
     ]);
+    const cardRight = x + width;
+    const cardBottom = y + height;
     document.setFillColor(8, 41, 76);
     document.roundedRect(x, y, width, height, 4, 4, "F");
     document.setFillColor(255, 255, 255);
-    document.roundedRect(x + 3, y + 3, width - 6, height - 6, 3, 3, "F");
+    document.roundedRect(x + 1.2, y + 1.2, width - 2.4, height - 2.4, 3.2, 3.2, "F");
     document.setFillColor(8, 41, 76);
-    document.rect(x + 3, y + 3, width - 6, 19, "F");
-    if (logoData) document.addImage(logoData, "PNG", x + 6, y + 6, 12, 12);
-    document.setTextColor(255, 255, 255);
-    document.setFontSize(9);
-    document.text(churchProfile.church_name, x + 21, y + 11, { maxWidth: width - 28 });
-    document.setFontSize(6);
-    document.text("MEMBER ID CARD", x + 21, y + 17);
-    document.setTextColor(8, 41, 76);
-    document.setFontSize(12);
-    document.text(name, x + 6, y + 32, { maxWidth: width - 42 });
-    document.setFontSize(8);
-    document.text(member.memberId, x + 6, y + 39);
-    document.setTextColor(71, 85, 105);
-    document.setFontSize(7);
-    [["Department", member.department || "Not assigned"], ["Status", member.membershipStatus], ["Phone", member.phone || "-"], ["Email", member.email || "-"]].forEach(([label, value], index) => {
-      const rowY = y + 49 + index * 8;
-      document.setTextColor(100, 116, 139);
-      document.text(label, x + 6, rowY);
-      document.setTextColor(8, 41, 76);
-      document.text(value, x + 28, rowY, { maxWidth: width - 64 });
-    });
-    if (photoData) {
-      document.addImage(photoData, "JPEG", x + width - 34, y + 27, 25, 25);
+    document.roundedRect(x + 1.2, y + 1.2, width - 2.4, 14, 3.2, 3.2, "F");
+    document.setFillColor(240, 193, 90);
+    document.rect(x + 1.2, y + 13, width - 2.4, 2.2, "F");
+    if (logoData) {
+      document.addImage(logoData, imageFormat(logoData), x + 5, y + 3.8, 9, 9);
     } else {
-      document.setFillColor(226, 232, 240);
-      document.roundedRect(x + width - 34, y + 27, 25, 25, 3, 3, "F");
-      document.setTextColor(100, 116, 139);
-      document.setFontSize(6);
-      document.text("PHOTO", x + width - 27, y + 41);
+      document.setFillColor(255, 255, 255);
+      document.circle(x + 9.5, y + 8.2, 4.4, "F");
+      document.setTextColor(8, 41, 76);
+      document.setFontSize(4.8);
+      document.text(initialsFromText(churchProfile.short_name), x + 9.5, y + 9.7, { align: "center" });
     }
-    if (qrData) document.addImage(qrData, "PNG", x + width - 35, y + height - 36, 27, 27);
-    document.setTextColor(100, 116, 139);
+    document.setTextColor(255, 255, 255);
+    document.setFontSize(7.2);
+    document.text(churchProfile.church_name, x + 17, y + 7.5, { maxWidth: width - 44 });
+    document.setFontSize(4.8);
+    document.text("MEMBER ID CARD", x + 17, y + 12.2);
+    document.setTextColor(240, 193, 90);
     document.setFontSize(5);
-    document.text(memberLookupUrl(member), x + 6, y + height - 7, { maxWidth: width - 46 });
+    document.text(member.memberId, cardRight - 6, y + 9.4, { align: "right" });
+
+    const photoX = x + 5;
+    const photoY = y + 20;
+    const photoSize = 22;
+    document.setFillColor(226, 232, 240);
+    document.roundedRect(photoX, photoY, photoSize, photoSize, 3, 3, "F");
+    if (photoData) {
+      document.addImage(photoData, imageFormat(photoData), photoX, photoY, photoSize, photoSize);
+    } else {
+      document.setTextColor(8, 41, 76);
+      document.setFontSize(9);
+      document.text(initialsFromText(name), photoX + photoSize / 2, photoY + 13, { align: "center" });
+    }
+
+    document.setTextColor(8, 41, 76);
+    document.setFontSize(9.5);
+    document.text(name, x + 31, y + 23, { maxWidth: width - 57 });
+    document.setTextColor(37, 99, 235);
+    document.setFontSize(6.3);
+    document.text(member.memberId, x + 31, y + 28);
+    [["Department", member.department || "Not assigned"], ["Status", member.membershipStatus], ["Phone", member.phone || "-"], ["Email", member.email || "-"]].forEach(([label, value], index) => {
+      const rowY = y + 34 + index * 4.7;
+      document.setTextColor(100, 116, 139);
+      document.setFontSize(4.4);
+      document.text(label.toUpperCase(), x + 31, rowY);
+      document.setTextColor(8, 41, 76);
+      document.setFontSize(5.2);
+      document.text(value, x + 48, rowY, { maxWidth: 16 });
+    });
+    if (qrData) document.addImage(qrData, "PNG", cardRight - 24, y + 21, 18, 18);
+    document.setTextColor(100, 116, 139);
+    document.setFontSize(4.3);
+    document.text("SCAN TO VERIFY", cardRight - 15, y + 42, { align: "center" });
+
+    document.setFillColor(248, 250, 252);
+    document.rect(x + 1.2, cardBottom - 8.5, width - 2.4, 7.3, "F");
+    document.setTextColor(100, 116, 139);
+    document.setFontSize(4.6);
+    document.text(`Issued: ${issueDate()}`, x + 5, cardBottom - 5);
+    document.text(`Expires: ${expiryYear()}`, x + 31, cardBottom - 5);
+    document.text("If found, please return to Hamburg Ghana SDA Church", x + 5, cardBottom - 2.3, { maxWidth: width - 12 });
   }
 
   async function downloadMemberCardPdf(member: MemberRecord) {
@@ -392,10 +442,20 @@ export function MemberManagement() {
   async function downloadBulkCardsPdf(members: MemberRecord[], filename: string) {
     if (!members.length) { setError("No active members found for ID card export."); return; }
     const { jsPDF } = await import("jspdf");
-    const document = new jsPDF({ orientation: "landscape", unit: "mm", format: [86, 54] });
+    const document = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const cardWidth = 86;
+    const cardHeight = 54;
+    const marginX = 14;
+    const marginY = 14;
+    const gapX = 10;
+    const gapY = 8;
+    const cardsPerPage = 8;
     for (const [index, member] of members.entries()) {
-      if (index > 0) document.addPage([86, 54], "landscape");
-      await drawMemberCard(document, member, 0, 0, 86, 54);
+      if (index > 0 && index % cardsPerPage === 0) document.addPage("a4", "portrait");
+      const slot = index % cardsPerPage;
+      const column = slot % 2;
+      const row = Math.floor(slot / 2);
+      await drawMemberCard(document, member, marginX + column * (cardWidth + gapX), marginY + row * (cardHeight + gapY), cardWidth, cardHeight);
     }
     document.save(filename);
   }
@@ -403,8 +463,10 @@ export function MemberManagement() {
   function printMemberCard(member: MemberRecord) {
     const printWindow = window.open("", "_blank", "width=420,height=620");
     if (!printWindow) return;
-    const lookupUrl = memberLookupUrl(member);
-    printWindow.document.write(`<!doctype html><html><head><title>${member.memberId} ID Card</title><style>body{font-family:Arial,sans-serif;background:#f8fafc;padding:24px}.card{width:340px;border-radius:18px;overflow:hidden;background:white;border:1px solid #e2e8f0;box-shadow:0 16px 40px #0002}.head{background:#08294c;color:white;padding:16px}.body{padding:16px}.name{font-size:20px;font-weight:800;color:#08294c}.grid{display:grid;grid-template-columns:1fr auto;gap:12px}.photo{width:86px;height:86px;border-radius:12px;object-fit:cover;background:#e2e8f0}.qr{width:104px;height:104px}.label{font-size:10px;text-transform:uppercase;color:#64748b;font-weight:700}.value{font-size:13px;color:#08294c;font-weight:700;margin:2px 0 8px}@media print{body{background:white;padding:0}.card{box-shadow:none}}</style></head><body><section class="card"><div class="head"><div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase">${churchProfile.church_name}</div><div style="font-size:11px;margin-top:4px;color:#f0c15a">Member ID Card</div></div><div class="body"><div class="grid"><div><div class="name">${memberFullName(member)}</div><div class="value">${member.memberId}</div><div class="label">Department</div><div class="value">${member.department || "Not assigned"}</div><div class="label">Status</div><div class="value">${member.membershipStatus}</div></div>${member.photoThumbnailUrl || member.photoUrl ? `<img class="photo" src="${member.photoThumbnailUrl || member.photoUrl}" alt="">` : `<div class="photo"></div>`}</div><div class="grid" style="align-items:end;margin-top:12px"><div><div class="label">Phone</div><div class="value">${member.phone || "-"}</div><div class="label">Email</div><div class="value">${member.email || "-"}</div></div><img class="qr" src="${qrImageUrl(member)}" alt="QR"></div><div style="margin-top:10px;font-size:9px;color:#64748b;word-break:break-all">${lookupUrl}</div></div></section><script>window.onload=()=>{window.print();}</script></body></html>`);
+    const name = memberFullName(member);
+    const logo = churchProfile.logo_url ? `<img class="logo" src="${escapeHtml(churchProfile.logo_url)}" alt="">` : `<div class="logo fallback">${escapeHtml(initialsFromText(churchProfile.short_name))}</div>`;
+    const photo = member.photoThumbnailUrl || member.photoUrl ? `<img class="photo" src="${escapeHtml(member.photoThumbnailUrl || member.photoUrl)}" alt="">` : `<div class="photo fallback">${escapeHtml(initialsFromText(name))}</div>`;
+    printWindow.document.write(`<!doctype html><html><head><title>${escapeHtml(member.memberId)} ID Card</title><style>@page{size:86mm 54mm;margin:0}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;background:white}.card{width:86mm;height:54mm;overflow:hidden;border-radius:4mm;border:1mm solid #08294c;background:white;color:#08294c;position:relative}.head{height:15mm;background:#08294c;color:white;display:grid;grid-template-columns:12mm 1fr auto;gap:3mm;align-items:center;padding:2.5mm 4mm;border-bottom:2mm solid #f0c15a}.logo{width:9mm;height:9mm;border-radius:2mm;background:white;object-fit:contain;padding:1mm}.logo.fallback{display:flex;align-items:center;justify-content:center;color:#08294c;font-weight:900;font-size:7px}.church{font-size:7.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;line-height:1.1}.kind{font-size:6px;color:#f0c15a;font-weight:800;margin-top:1mm}.number{font-size:7px;color:#f0c15a;font-weight:900}.body{display:grid;grid-template-columns:22mm 1fr 20mm;gap:3mm;padding:4mm}.photo{width:22mm;height:22mm;border-radius:3mm;background:#e2e8f0;object-fit:cover}.photo.fallback{display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#08294c}.name{font-size:12px;font-weight:900;line-height:1.05;margin-bottom:1.5mm}.mid{font-size:7px;color:#2563eb;font-weight:900;margin-bottom:2mm}.label{font-size:4.8px;text-transform:uppercase;color:#64748b;font-weight:800}.value{font-size:6.3px;font-weight:800;margin:.3mm 0 1.2mm;line-height:1.05}.qr{width:18mm;height:18mm;border:0.4mm solid #e2e8f0;border-radius:2mm;padding:1mm}.scan{font-size:4.5px;color:#64748b;font-weight:800;text-align:center;margin-top:1mm}.foot{position:absolute;left:0;right:0;bottom:0;height:8mm;background:#f8fafc;padding:1.3mm 4mm;font-size:4.8px;color:#64748b}.return{margin-top:.5mm}@media print{.card{box-shadow:none}}</style></head><body><section class="card"><div class="head">${logo}<div><div class="church">${escapeHtml(churchProfile.church_name)}</div><div class="kind">Member ID Card</div></div><div class="number">${escapeHtml(member.memberId)}</div></div><div class="body">${photo}<div><div class="name">${escapeHtml(name)}</div><div class="mid">${escapeHtml(member.memberId)}</div><div class="label">Department</div><div class="value">${escapeHtml(member.department || "Not assigned")}</div><div class="label">Status</div><div class="value">${escapeHtml(member.membershipStatus)}</div><div class="label">Phone</div><div class="value">${escapeHtml(member.phone || "-")}</div><div class="label">Email</div><div class="value">${escapeHtml(member.email || "-")}</div></div><div><img class="qr" src="${escapeHtml(qrImageUrl(member, 220))}" alt="QR"><div class="scan">SCAN TO VERIFY</div></div></div><div class="foot"><span>Issued: ${escapeHtml(issueDate())}</span><span style="margin-left:8mm">Expires: ${escapeHtml(expiryYear())}</span><div class="return">If found, please return to Hamburg Ghana SDA Church</div></div></section><script>window.onload=()=>{window.print();}</script></body></html>`);
     printWindow.document.close();
   }
 
@@ -489,9 +551,6 @@ export function MemberManagement() {
 
 function MemberIdCardModal({ member, church, lookupUrl, qrUrl, onClose, onDownload, onPrint }: { member: MemberRecord; church: ChurchProfile; lookupUrl: string; qrUrl: string; onClose: () => void; onDownload: () => void; onPrint: () => void }) {
   const fullName = `${member.firstName} ${member.lastName}`.trim();
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-xl rounded-xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="font-bold text-navy">Member ID Card</h2><p className="mt-1 text-xs text-slate-400">{member.memberId}</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close ID card" onClick={onClose}><X className="h-5 w-5" /></Button></div><div className="p-5"><section className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"><div className="flex items-center gap-3 bg-navy-deep p-4 text-white">{church.logo_url ? <object aria-label={`${church.church_name} logo`} className="h-10 w-10 rounded bg-white object-contain p-1" data={church.logo_url} type="image/png"><IdCard className="h-8 w-8 text-gold" /></object> : <div className="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-gold"><IdCard className="h-6 w-6" /></div>}<div><p className="text-xs font-bold uppercase tracking-[0.16em] text-gold">{church.church_name}</p><p className="mt-1 text-xs text-blue-100">Member ID Card</p></div></div><div className="p-4"><div className="grid grid-cols-[1fr_auto] gap-4"><div><h3 className="text-xl font-black text-navy">{fullName}</h3><p className="mt-1 text-sm font-bold text-churchblue">{member.memberId}</p><InfoText label="Department" value={member.department || "Not assigned"} /><InfoText label="Role / Status" value={member.membershipStatus} /></div><MemberAvatar alt={fullName} size="lg" src={member.photoThumbnailUrl || member.photoUrl} /></div><div className="mt-4 grid grid-cols-[1fr_auto] gap-4"><div><InfoText label="Phone" value={member.phone || "-"} /><InfoText label="Email" value={member.email || "-"} /></div><object aria-label={`QR code for ${member.memberId}`} className="h-28 w-28 rounded-lg border border-slate-100 p-2" data={qrUrl} type="image/png"><QrCode className="h-20 w-20 text-slate-300" /></object></div><p className="mt-3 break-all text-[10px] text-slate-400">{lookupUrl}</p></div></section><div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={onDownload}><Download className="h-4 w-4" /> Download ID Card PDF</Button><Button variant="outline" onClick={onPrint}><Printer className="h-4 w-4" /> Print ID Card</Button><Button onClick={onClose}>Done</Button></div></div></div></div>;
-}
-
-function InfoText({ label, value }: { label: string; value: string }) {
-  return <div className="mt-3"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="text-sm font-bold text-navy">{value}</p></div>;
+  const churchInitials = church.short_name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "HG";
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-3xl rounded-xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 print:hidden"><div><h2 className="font-bold text-navy">Member ID Card</h2><p className="mt-1 text-xs text-slate-400">{member.memberId}</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close ID card" onClick={onClose}><X className="h-5 w-5" /></Button></div><div className="p-5"><section className="mx-auto aspect-[86/54] w-full max-w-[540px] overflow-hidden rounded-2xl border-[6px] border-navy-deep bg-white shadow-lg"><div className="grid h-[28%] grid-cols-[3rem_1fr_auto] items-center gap-3 border-b-4 border-gold bg-navy-deep px-4 text-white">{church.logo_url ? <object aria-label={`${church.church_name} logo`} className="h-10 w-10 rounded-md bg-white object-contain p-1" data={church.logo_url} type="image/png"><span className="flex h-full w-full items-center justify-center text-xs font-black text-navy">{churchInitials}</span></object> : <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-xs font-black text-navy">{churchInitials}</div>}<div className="min-w-0"><p className="truncate text-xs font-black uppercase tracking-[0.16em] text-white">{church.church_name}</p><p className="mt-1 text-xs font-bold text-gold">Member ID Card</p></div><p className="text-xs font-black text-gold">{member.memberId}</p></div><div className="grid h-[72%] grid-cols-[5.25rem_1fr_5.5rem] gap-3 px-4 py-3"><MemberAvatar alt={fullName} className="h-20 w-20 rounded-lg" size="lg" src={member.photoThumbnailUrl || member.photoUrl} /><div className="min-w-0"><h3 className="truncate text-xl font-black leading-tight text-navy">{fullName}</h3><p className="mt-0.5 text-sm font-black text-churchblue">{member.memberId}</p><div className="mt-2 grid grid-cols-[4.5rem_1fr] gap-y-1 text-xs"><span className="font-black uppercase text-slate-400">Department</span><span className="truncate font-bold text-navy">{member.department || "Not assigned"}</span><span className="font-black uppercase text-slate-400">Status</span><span className="font-bold text-navy">{member.membershipStatus}</span><span className="font-black uppercase text-slate-400">Phone</span><span className="truncate font-bold text-navy">{member.phone || "-"}</span><span className="font-black uppercase text-slate-400">Email</span><span className="truncate font-bold text-navy">{member.email || "-"}</span></div></div><div className="flex flex-col items-center justify-start"><object aria-label={`QR code for ${member.memberId}`} className="h-[4.5rem] w-[4.5rem] rounded-lg border border-slate-100 p-1" data={qrUrl} type="image/png"><QrCode className="h-14 w-14 text-slate-300" /></object><p className="mt-1 text-[9px] font-black uppercase text-slate-400">Scan to verify</p></div><div className="col-span-3 grid grid-cols-[auto_auto_1fr] gap-3 border-t border-slate-100 pt-1 text-[10px] font-bold text-slate-500"><span>Issued: {new Date().toLocaleDateString("en-GB")}</span><span>Expires: {new Date().getFullYear() + 2}</span><span className="truncate text-right">If found, please return to Hamburg Ghana SDA Church</span></div></div></section><p className="mx-auto mt-3 max-w-[540px] truncate text-center text-[10px] text-slate-400">{lookupUrl}</p><div className="mt-5 flex flex-wrap justify-end gap-2 print:hidden"><Button variant="outline" onClick={onDownload}><Download className="h-4 w-4" /> Download ID Card PDF</Button><Button variant="outline" onClick={onPrint}><Printer className="h-4 w-4" /> Print ID Card</Button><Button onClick={onClose}>Done</Button></div></div></div></div>;
 }
