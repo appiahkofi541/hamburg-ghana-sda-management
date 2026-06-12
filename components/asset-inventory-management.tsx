@@ -50,6 +50,16 @@ const emptyAdjustment = { inventoryItemId: "", quantityChange: 0, reason: "", no
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 const textareaClass = "mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700 outline-none focus:border-churchblue";
 const currency = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+const inventoryCategories = [
+  "Audio Equipment",
+  "Church Supplies",
+  "Office Supplies",
+  "Cleaning Supplies",
+  "Communion Supplies",
+  "Media Equipment",
+  "Maintenance Supplies",
+  "Other",
+];
 
 function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -442,7 +452,8 @@ function AssetModal({ form, setForm, categories, saving, onClose, onSubmit }: { 
 }
 
 function InventoryModal({ form, setForm, saving, onClose, onSubmit }: { form: InventoryItem; setForm: (form: InventoryItem) => void; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Inventory Item" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3"><Input label="Item ID" value={form.itemNumber} onChange={(value) => setForm({ ...form, itemNumber: value })} required /><Input label="Item Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><Input label="Category" value={form.category} onChange={(value) => setForm({ ...form, category: value })} /><Input label="Quantity" type="number" value={String(form.quantity)} onChange={(value) => setForm({ ...form, quantity: Number(value) })} /><Input label="Reorder Level" type="number" value={String(form.reorderLevel)} onChange={(value) => setForm({ ...form, reorderLevel: Number(value) })} /><Input label="Unit Cost" type="number" value={String(form.unitCost)} onChange={(value) => setForm({ ...form, unitCost: Number(value) })} /><Input label="Supplier" value={form.supplier} onChange={(value) => setForm({ ...form, supplier: value })} /><Input label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Description<textarea className={textareaClass} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Item" onClose={onClose} /></form></Modal>;
+  const categoryOptions = form.category && !inventoryCategories.includes(form.category) ? [...inventoryCategories, form.category] : inventoryCategories;
+  return <Modal title="Inventory Item" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3"><Input label="Item ID" value={form.itemNumber} onChange={(value) => setForm({ ...form, itemNumber: value })} required /><Input label="Item Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><label className="text-sm font-semibold text-slate-700">Category<select className={fieldClass} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}><option value="">Select category</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><Input label="Quantity" type="number" value={String(form.quantity)} onChange={(value) => setForm({ ...form, quantity: Number(value) })} /><Input label="Reorder Level" type="number" value={String(form.reorderLevel)} onChange={(value) => setForm({ ...form, reorderLevel: Number(value) })} /><Input label="Unit Cost" type="number" value={String(form.unitCost)} onChange={(value) => setForm({ ...form, unitCost: Number(value) })} /><Input label="Supplier" value={form.supplier} onChange={(value) => setForm({ ...form, supplier: value })} /><Input label="Location" value={form.location} onChange={(value) => setForm({ ...form, location: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2 lg:col-span-3">Description<textarea className={textareaClass} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Item" onClose={onClose} /></form></Modal>;
 }
 
 function AssignmentModal({ form, setForm, assets, members, departments, pastors, saving, onClose, onSubmit }: { form: typeof emptyAssignment; setForm: (form: typeof emptyAssignment) => void; assets: Asset[]; members: Option[]; departments: Option[]; pastors: Option[]; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
