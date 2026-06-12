@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { APP_ROLES, ROLE_LABELS, normalizeRoles, type AppRole } from "@/lib/auth";
 import { required } from "@/lib/validation";
+import { churchLocation, fallbackChurchProfile, loadPublicChurchProfile, type ChurchProfile } from "@/lib/church-profile";
 
 type AssetStatus = "available" | "assigned" | "in_use" | "under_maintenance" | "retired" | "lost";
 type AssignmentType = "member" | "department" | "pastor" | "church_role" | "location";
@@ -105,10 +106,10 @@ function newAssignmentForm(assetId = "") {
   return { ...emptyAssignment, assetId, checkedOutAt: new Date().toISOString().slice(0, 16) };
 }
 
-function downloadWorkbook(name: string, worksheet: string, headers: string[], rows: string[][]) {
+function downloadWorkbook(name: string, worksheet: string, headers: string[], rows: string[][], titleRows: string[][] = []) {
   const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
   const row = (values: string[]) => `<Row>${values.map((value) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`;
-  const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="${worksheet}"><Table>${row(headers)}${rows.map(row).join("")}</Table></Worksheet></Workbook>`;
+  const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="${worksheet}"><Table>${titleRows.map(row).join("")}${row(headers)}${rows.map(row).join("")}</Table></Worksheet></Workbook>`;
   const url = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.ms-excel" }));
   const link = document.createElement("a");
   link.href = url;
@@ -128,6 +129,7 @@ export function AssetInventoryManagement() {
   const [members, setMembers] = useState<Option[]>([]);
   const [departments, setDepartments] = useState<Option[]>([]);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [churchProfile, setChurchProfile] = useState<ChurchProfile>(fallbackChurchProfile);
   const [activeTab, setActiveTab] = useState<Tab>("assets");
   const [query, setQuery] = useState("");
   const [scanCode, setScanCode] = useState("");
@@ -186,6 +188,7 @@ export function AssetInventoryManagement() {
       supabase.from("members").select("id, member_id, full_name, first_name, last_name").eq("status", "active").order("full_name"),
       supabase.from("departments").select("id, name").eq("is_active", true).order("name"),
     ]);
+    setChurchProfile(await loadPublicChurchProfile(supabase));
     if (assetResult.error || categoryResult.error) setError(`${assetResult.error?.message ?? categoryResult.error?.message}. Apply migration 202606120002_asset_inventory_management.sql in Supabase.`);
     const categoryRows = (categoryResult.data ?? []).map((category) => ({ id: category.id, name: category.name, isActive: Boolean(category.is_active) }));
     setCategories(categoryRows);
@@ -383,14 +386,20 @@ export function AssetInventoryManagement() {
   }
 
   function exportExcel() {
-    downloadWorkbook("Hamburg-Ghana-SDA-Assets.xls", "Assets", ["Asset ID", "Name", "Category", "Serial", "Purchase Date", "Cost", "Value", "Location", "Status"], filteredAssets.map((asset) => [asset.assetNumber, asset.name, asset.categoryName, asset.serialNumber, asset.purchaseDate, String(asset.purchaseCost), String(asset.currentValue), asset.location, titleCase(asset.status)]));
+    downloadWorkbook(
+      `${churchProfile.short_name.replaceAll(" ", "-")}-Assets.xls`,
+      "Assets",
+      ["Asset ID", "Name", "Category", "Serial", "Purchase Date", "Cost", "Value", "Location", "Status"],
+      filteredAssets.map((asset) => [asset.assetNumber, asset.name, asset.categoryName, asset.serialNumber, asset.purchaseDate, String(asset.purchaseCost), String(asset.currentValue), asset.location, titleCase(asset.status)]),
+      [[churchProfile.church_name], [churchLocation(churchProfile)]],
+    );
   }
 
   async function exportPdf() {
     const [{ jsPDF }, autoTableModule] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const document = new jsPDF({ orientation: "landscape" });
     document.setFontSize(16);
-    document.text("Hamburg Ghana SDA Church - Asset Register Report", 14, 16);
+    document.text(`${churchProfile.church_name} - Asset Register Report`, 14, 16);
     document.setFontSize(9);
     document.text(`Assets: ${assets.length} | Value: ${currency.format(assets.reduce((sum, asset) => sum + asset.currentValue, 0))} | Low stock: ${inventory.filter((item) => item.quantity <= item.reorderLevel).length}`, 14, 23);
     autoTableModule.default(document, { startY: 29, head: [["Asset ID", "Name", "Category", "Serial", "Value", "Location", "Status"]], body: filteredAssets.map((asset) => [asset.assetNumber, asset.name, asset.categoryName, asset.serialNumber, currency.format(asset.currentValue), asset.location, titleCase(asset.status)]), styles: { fontSize: 8 }, headStyles: { fillColor: [8, 41, 76] } });

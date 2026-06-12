@@ -11,6 +11,7 @@ import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeRoles, type AppRole } from "@/lib/auth";
+import { fallbackChurchProfile, loadPublicChurchProfile, type ChurchProfile } from "@/lib/church-profile";
 
 type Channel = "email" | "whatsapp" | "sms";
 type Audience = "all_members" | "all_visitors" | "department" | "role" | "individual";
@@ -88,10 +89,10 @@ function statusTone(status: string) {
   return "slate";
 }
 
-function downloadWorkbook(name: string, worksheet: string, headers: string[], rows: string[][]) {
+function downloadWorkbook(name: string, worksheet: string, headers: string[], rows: string[][], titleRows: string[][] = []) {
   const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[character]!);
   const row = (values: string[]) => `<Row>${values.map((value) => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`;
-  const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="${worksheet}"><Table>${row(headers)}${rows.map(row).join("")}</Table></Worksheet></Workbook>`;
+  const workbook = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="${worksheet}"><Table>${titleRows.map(row).join("")}${row(headers)}${rows.map(row).join("")}</Table></Worksheet></Workbook>`;
   const url = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.ms-excel" }));
   const link = document.createElement("a");
   link.href = url;
@@ -112,6 +113,7 @@ export function CommunicationModule() {
   const [visitorFollowUps, setVisitorFollowUps] = useState<VisitorFollowUp[]>([]);
   const [baptismClasses, setBaptismClasses] = useState<BaptismClass[]>([]);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [churchProfile, setChurchProfile] = useState<ChurchProfile>(fallbackChurchProfile);
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -151,7 +153,7 @@ export function CommunicationModule() {
     const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
     setRoles(normalizeRoles((roleRows ?? []).map(({ role }) => role)));
 
-    const [departmentResult, memberResult, visitorResult, campaignResult, deliveryResult, templateResult, eventResult, followUpResult, baptismClassResult] = await Promise.all([
+    const [departmentResult, memberResult, visitorResult, campaignResult, deliveryResult, templateResult, eventResult, followUpResult, baptismClassResult, profile] = await Promise.all([
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase.from("members").select("id, member_id, full_name, first_name, last_name, email, phone").eq("status", "active").order("full_name"),
       supabase.from("visitors").select("id, visitor_number, full_name, email, phone, next_follow_up_date").order("visit_date", { ascending: false }),
@@ -161,7 +163,9 @@ export function CommunicationModule() {
       supabase.from("events").select("id, title, starts_at").gte("starts_at", new Date().toISOString()).order("starts_at").limit(10),
       supabase.from("visitors").select("id, full_name, next_follow_up_date").not("next_follow_up_date", "is", null).order("next_follow_up_date").limit(10),
       supabase.from("baptism_classes").select("id, class_name, start_date, instructor").order("start_date", { ascending: false }).limit(10),
+      loadPublicChurchProfile(supabase),
     ]);
+    setChurchProfile(profile);
 
     const migrationError = campaignResult.error ?? deliveryResult.error ?? templateResult.error;
     if (migrationError) setError(`${migrationError.message}. Apply migration 202606120001_communication_notification_center.sql in Supabase.`);
@@ -226,7 +230,7 @@ export function CommunicationModule() {
   }
 
   function openReminder(reminderType: ReminderType, channel: Channel, title: string, message: string, subject = "") {
-    setCampaignForm({ ...emptyCampaign, title, channel, subject, message, reminderType });
+    setCampaignForm({ ...emptyCampaign, title, channel, subject, message: message.replaceAll("Hamburg Ghana SDA Church", churchProfile.church_name), reminderType });
     setShowCampaign(true);
   }
 
@@ -276,7 +280,7 @@ export function CommunicationModule() {
     setSaving(true);
     const supabase = createClient();
     if (supabase) {
-      const { error: saveError } = await supabase.from("communication_templates").insert(templateForm);
+      const { error: saveError } = await supabase.from("communication_templates").insert({ ...templateForm, body: templateForm.body || `Message from ${churchProfile.church_name}:\n\n{{message}}` });
       if (saveError) { setError(saveError.message); setSaving(false); return; }
     }
     setTemplateForm(emptyTemplate);
@@ -288,10 +292,11 @@ export function CommunicationModule() {
 
   function exportExcel() {
     downloadWorkbook(
-      "Hamburg-Ghana-SDA-Message-History.xls",
+      `${churchProfile.short_name.replaceAll(" ", "-")}-Message-History.xls`,
       "Messages",
       ["Date", "Title", "Recipient", "Contact", "Channel", "Status", "Delivery Status", "Error"],
       filteredDeliveries.map((item) => [item.sentAt, item.title, item.recipient, item.contact, label(item.channel), label(item.status), label(item.deliveryStatus), item.error]),
+      [[churchProfile.church_name]],
     );
   }
 
@@ -299,7 +304,7 @@ export function CommunicationModule() {
     const [{ jsPDF }, autoTableModule] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
     const document = new jsPDF({ orientation: "landscape" });
     document.setFontSize(16);
-    document.text("Hamburg Ghana SDA Church - Communication & Notification Center", 14, 16);
+    document.text(`${churchProfile.church_name} - Communication & Notification Center`, 14, 16);
     document.setFontSize(9);
     document.text(`Messages: ${stats.messages} | Email: ${stats.email} | WhatsApp: ${stats.whatsapp} | SMS: ${stats.sms} | Failed: ${stats.failed}`, 14, 23);
     autoTableModule.default(document, {
@@ -309,7 +314,7 @@ export function CommunicationModule() {
       styles: { fontSize: 8 },
       headStyles: { fillColor: [8, 41, 76] },
     });
-    document.save("Hamburg-Ghana-SDA-Message-History.pdf");
+    document.save(`${churchProfile.short_name.replaceAll(" ", "-")}-Message-History.pdf`);
   }
 
   return (
@@ -339,13 +344,13 @@ export function CommunicationModule() {
           {tabs.map((tab) => <button className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold ${activeTab === tab.id ? "bg-churchblue text-white" : "text-slate-600 hover:bg-slate-100"}`} key={tab.id} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>)}
         </div>
         {activeTab === "compose" && <ComposeTab campaigns={campaigns} canSend={canSend} onAdd={() => setShowCampaign(true)} onSend={sendCampaign} />}
-        {activeTab === "reminders" && <RemindersTab events={events} visitors={visitorFollowUps} baptismClasses={baptismClasses} onReminder={openReminder} />}
+        {activeTab === "reminders" && <RemindersTab events={events} visitors={visitorFollowUps} baptismClasses={baptismClasses} churchName={churchProfile.church_name} sabbathTime={churchProfile.sabbath_service_time} onReminder={openReminder} />}
         {activeTab === "templates" && <TemplatesTab templates={templates} canSend={canSend} onAdd={() => setShowTemplate(true)} />}
         {activeTab === "history" && <HistoryTab deliveries={filteredDeliveries} loading={loading} query={query} setQuery={setQuery} />}
       </Card>
 
       {showCampaign && <CampaignModal departments={departments} form={campaignForm} setForm={setCampaignForm} saving={saving} members={members} visitors={visitors} templates={templates} onTemplate={applyTemplate} onClose={() => setShowCampaign(false)} onSubmit={saveCampaign} />}
-      {showTemplate && <TemplateModal form={templateForm} setForm={setTemplateForm} saving={saving} onClose={() => setShowTemplate(false)} onSubmit={saveTemplate} />}
+      {showTemplate && <TemplateModal form={templateForm} setForm={setTemplateForm} saving={saving} churchName={churchProfile.church_name} onClose={() => setShowTemplate(false)} onSubmit={saveTemplate} />}
     </div>
   );
 }
@@ -358,8 +363,8 @@ function ComposeTab({ campaigns, canSend, onAdd, onSend }: { campaigns: Campaign
   return <div className="p-4"><SectionHeader title="Bulk Messaging Campaigns" action={canSend ? <Button size="sm" onClick={onAdd}><Plus className="h-4 w-4" /> Compose</Button> : null} /><div className="grid gap-4 lg:grid-cols-2">{campaigns.map((campaign) => <article className="rounded-xl border border-slate-100 p-4" key={campaign.id}><div className="flex items-start justify-between gap-3"><div><StatusBadge tone={channelTone(campaign.channel)}>{label(campaign.channel)}</StatusBadge><h3 className="mt-3 font-bold text-navy">{campaign.title}</h3><p className="mt-1 text-xs text-slate-400">{label(campaign.reminderType)} · {label(campaign.audience)}{campaign.roleName ? ` · ${label(campaign.roleName)}` : ""}</p></div><StatusBadge tone={statusTone(campaign.status)}>{label(campaign.status)}</StatusBadge></div><p className="mt-3 text-sm leading-6 text-slate-600">{campaign.message}</p><div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3"><p className="text-xs font-semibold text-slate-400">{campaign.recipientCount} recipients · {campaign.sentCount} sent · {campaign.failedCount} failed</p>{canSend && <Button size="sm" variant="outline" onClick={() => onSend(campaign.id)}><Send className="h-4 w-4" /> Send / Retry</Button>}</div></article>)}{campaigns.length === 0 && <Empty text="No message campaigns yet." />}</div></div>;
 }
 
-function RemindersTab({ events, visitors, baptismClasses, onReminder }: { events: EventOption[]; visitors: VisitorFollowUp[]; baptismClasses: BaptismClass[]; onReminder: (type: ReminderType, channel: Channel, title: string, message: string, subject?: string) => void }) {
-  return <div className="grid gap-4 p-4 xl:grid-cols-3"><ReminderPanel title="Upcoming Events" icon={<CalendarClock className="h-5 w-5" />} rows={events.map((event) => ({ id: event.id, title: event.title, note: event.startsAt.slice(0, 16).replace("T", " "), action: () => onReminder("event_reminder", "email", `Reminder: ${event.title}`, `Dear {{name}}, this is a reminder that ${event.title} is scheduled for ${event.startsAt.slice(0, 16).replace("T", " ")}.`, `Reminder: ${event.title}`) }))} /><ReminderPanel title="Visitor Follow-ups" icon={<UsersRound className="h-5 w-5" />} rows={visitors.map((visitor) => ({ id: visitor.id, title: visitor.fullName, note: visitor.nextFollowUpDate, action: () => onReminder("visitor_follow_up", "whatsapp", `Follow-up: ${visitor.fullName}`, `Hello ${visitor.fullName}, thank you for visiting Hamburg Ghana SDA Church. We hope to see you again soon.`) }))} /><ReminderPanel title="Birthdays & Classes" icon={<Cake className="h-5 w-5" />} rows={[{ id: "birthdays", title: "Birthday Greetings", note: "Send to all members with birthdays", action: () => onReminder("birthday_greeting", "email", "Birthday Greetings", "Dear {{name}}, happy birthday. Hamburg Ghana SDA Church celebrates you today.", "Happy Birthday") }, ...baptismClasses.map((item) => ({ id: item.id, title: item.className, note: item.startDate || item.instructor, action: () => onReminder("baptism_class_reminder", "sms", `Baptism Class: ${item.className}`, `Reminder: ${item.className} is scheduled for ${item.startDate || "the next class date"}. Hamburg Ghana SDA Church.`) }))]} /></div>;
+function RemindersTab({ events, visitors, baptismClasses, churchName, sabbathTime, onReminder }: { events: EventOption[]; visitors: VisitorFollowUp[]; baptismClasses: BaptismClass[]; churchName: string; sabbathTime: string; onReminder: (type: ReminderType, channel: Channel, title: string, message: string, subject?: string) => void }) {
+  return <div className="grid gap-4 p-4 xl:grid-cols-3"><ReminderPanel title="Upcoming Events" icon={<CalendarClock className="h-5 w-5" />} rows={events.map((event) => ({ id: event.id, title: event.title, note: event.startsAt.slice(0, 16).replace("T", " "), action: () => onReminder("event_reminder", "email", `Reminder: ${event.title}`, `Dear {{name}}, this is a reminder from ${churchName} that ${event.title} is scheduled for ${event.startsAt.slice(0, 16).replace("T", " ")}.`, `Reminder: ${event.title}`) }))} /><ReminderPanel title="Visitor Follow-ups" icon={<UsersRound className="h-5 w-5" />} rows={visitors.map((visitor) => ({ id: visitor.id, title: visitor.fullName, note: visitor.nextFollowUpDate, action: () => onReminder("visitor_follow_up", "whatsapp", `Follow-up: ${visitor.fullName}`, `Hello ${visitor.fullName}, thank you for visiting ${churchName}. We hope to see you again soon.`) }))} /><ReminderPanel title="Birthdays & Classes" icon={<Cake className="h-5 w-5" />} rows={[{ id: "birthdays", title: "Birthday Greetings", note: "Send to all members with birthdays", action: () => onReminder("birthday_greeting", "email", "Birthday Greetings", `Dear {{name}}, happy birthday. ${churchName} celebrates you today.`, "Happy Birthday") }, { id: "sabbath", title: "Sabbath Reminder", note: sabbathTime || "Use church service time", action: () => onReminder("sabbath_service", "whatsapp", "Sabbath Reminder", `Happy Sabbath. Divine Service begins at ${sabbathTime || "{{time}}"}. ${churchName} welcomes you.`) }, ...baptismClasses.map((item) => ({ id: item.id, title: item.className, note: item.startDate || item.instructor, action: () => onReminder("baptism_class_reminder", "sms", `Baptism Class: ${item.className}`, `Reminder: ${item.className} is scheduled for ${item.startDate || "the next class date"}. ${churchName}.`) }))]} /></div>;
 }
 
 function ReminderPanel({ title, icon, rows }: { title: string; icon: ReactNode; rows: { id: string; title: string; note: string; action: () => void }[] }) {
@@ -386,8 +391,9 @@ function CampaignModal({ departments, form, setForm, saving, members, visitors, 
   return <Modal title="Compose Message" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Campaign Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required /><Select label="Channel" value={form.channel} onChange={(value) => setForm({ ...form, channel: value as Channel })} options={channelOptions} /><Select label="Message Type" value={form.reminderType} onChange={(value) => setForm({ ...form, reminderType: value as ReminderType })} options={reminderOptions} /><Select label="Bulk Audience" value={form.audience} onChange={(value) => setForm({ ...form, audience: value as Audience, department: "", roleName: "", recipientMemberId: "", recipientVisitorId: "" })} options={["all_members", "all_visitors", "department", "role", "individual"]} /><label className="text-sm font-semibold text-slate-700">Department<select className={fieldClass} disabled={form.audience !== "department"} value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}><option value="">{form.audience === "department" ? "Select department" : "Choose department audience first"}</option>{departments.map((department) => <option disabled={!department.isActive} key={department.id} value={department.name}>{department.name}</option>)}</select></label><Select label="Role" disabled={form.audience !== "role"} value={form.roleName} onChange={(value) => setForm({ ...form, roleName: value })} options={["", ...roleOptions]} /><label className="text-sm font-semibold text-slate-700">Individual Member<select className={fieldClass} disabled={form.audience !== "individual" || Boolean(form.recipientVisitorId)} value={form.recipientMemberId} onChange={(event) => setForm({ ...form, recipientMemberId: event.target.value, recipientVisitorId: "" })}><option value="">Select member</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700">Individual Visitor<select className={fieldClass} disabled={form.audience !== "individual" || Boolean(form.recipientMemberId)} value={form.recipientVisitorId} onChange={(event) => setForm({ ...form, recipientVisitorId: event.target.value, recipientMemberId: "" })}><option value="">Select visitor</option>{visitors.map((visitor) => <option key={visitor.id} value={visitor.id}>{visitor.name}</option>)}</select></label><Input label="Schedule Date" type="datetime-local" value={form.scheduledAt} onChange={(value) => setForm({ ...form, scheduledAt: value })} /><Input label="Subject" value={form.subject} onChange={(value) => setForm({ ...form, subject: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Use Template<select className={fieldClass} onChange={(event) => onTemplate(event.target.value)}><option value="">Choose template</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Message<textarea className={textareaClass} required value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} /></label><p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 sm:col-span-2">SMS gateway support is optional. If Email, WhatsApp, or SMS credentials are not configured, the system records failed delivery logs with provider setup details.</p></div><ModalActions saving={saving} label="Save / Send" onClose={onClose} /></form></Modal>;
 }
 
-function TemplateModal({ form, setForm, saving, onClose, onSubmit }: { form: typeof emptyTemplate; setForm: (form: typeof emptyTemplate) => void; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <Modal title="Create Message Template" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Template Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><Select label="Channel" value={form.channel} onChange={(value) => setForm({ ...form, channel: value as Channel })} options={channelOptions} /><Input label="Subject" value={form.subject} onChange={(value) => setForm({ ...form, subject: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Body<textarea className={textareaClass} required value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Template" onClose={onClose} /></form></Modal>;
+function TemplateModal({ form, setForm, saving, churchName, onClose, onSubmit }: { form: typeof emptyTemplate; setForm: (form: typeof emptyTemplate) => void; saving: boolean; churchName: string; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const body = form.body || `Message from ${churchName}:\n\n{{message}}`;
+  return <Modal title="Create Message Template" onClose={onClose}><form onSubmit={onSubmit}><div className="grid gap-4 p-5 sm:grid-cols-2"><Input label="Template Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} required /><Select label="Channel" value={form.channel} onChange={(value) => setForm({ ...form, channel: value as Channel })} options={channelOptions} /><Input label="Subject" value={form.subject} onChange={(value) => setForm({ ...form, subject: value })} /><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Body<textarea className={textareaClass} required value={body} onChange={(event) => setForm({ ...form, body: event.target.value })} /></label></div><ModalActions saving={saving} label="Save Template" onClose={onClose} /></form></Modal>;
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {

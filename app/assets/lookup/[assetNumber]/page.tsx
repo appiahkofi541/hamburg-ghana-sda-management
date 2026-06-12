@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/status-badge";
 import { getSupabasePublicKey } from "@/lib/auth";
+import { normalizeChurchProfile } from "@/lib/church-profile";
 
 type AssetStatus = "available" | "assigned" | "in_use" | "under_maintenance" | "retired" | "lost";
 type AssignmentRow = {
@@ -65,8 +66,12 @@ export default async function AssetLookupPage({ params }: { params: Promise<{ as
   }
 
   const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data, error } = await supabase.rpc("get_public_asset_lookup", { asset_number_input: decodedAssetNumber });
+  const [{ data, error }, { data: churchData }] = await Promise.all([
+    supabase.rpc("get_public_asset_lookup", { asset_number_input: decodedAssetNumber }),
+    supabase.rpc("get_public_church_profile"),
+  ]);
   const lookup = data as AssetLookupPayload | null;
+  const church = normalizeChurchProfile(churchData);
 
   if (error) {
     return <LookupShell><EmptyState title="Asset lookup is not ready" message="Run migration 202606120005_public_asset_lookup_rpc.sql in Supabase SQL Editor, then scan the QR code again." /></LookupShell>;
@@ -83,7 +88,7 @@ export default async function AssetLookupPage({ params }: { params: Promise<{ as
     <LookupShell>
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="p-5">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-churchblue">Hamburg Ghana SDA Church</p>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-churchblue">{church.church_name}</p>
           <div className="mt-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div>
               <h1 className="text-2xl font-bold text-navy">{asset.name}</h1>

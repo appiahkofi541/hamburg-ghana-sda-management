@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Archive, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
-  BadgeEuro, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, RefreshCw, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, UsersRound, X,
+  BadgeEuro, Building2, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, RefreshCw, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, UsersRound, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LogoMark } from "@/components/logo-mark";
@@ -19,6 +19,7 @@ import type { TranslationKey } from "@/lib/i18n";
 
 const nav = [
   { labelKey: "nav.dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "nav.churchProfile", href: "/church-profile", icon: Building2 },
   { labelKey: "nav.pastorDashboard", href: "/pastor-dashboard", icon: ChartNoAxesCombined },
   { labelKey: "nav.members", href: "/members", icon: Users },
   { labelKey: "nav.visitors", href: "/visitors", icon: UsersRound },
@@ -47,6 +48,7 @@ const nav = [
 
 const memberNav = [
   { labelKey: "nav.memberDashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "nav.churchProfile", href: "/church-profile", icon: Building2 },
   { labelKey: "nav.myProfile", href: "/my-profile", icon: IdCard },
   { labelKey: "nav.myAttendance", href: "/my-attendance", icon: ClipboardCheck },
   { labelKey: "nav.myContributions", href: "/my-contributions", icon: ReceiptText },

@@ -30,7 +30,7 @@ as $$
       asset_assignments.id,
       asset_assignments.assigned_to_type,
       case
-        when asset_assignments.assigned_to_type = 'member' then coalesce(members.full_name, trim(coalesce(members.first_name, '') || ' ' || coalesce(members.last_name, '')), members.member_id, 'Member')
+        when asset_assignments.assigned_to_type = 'member' then coalesce(members.full_name, trim(coalesce(members.first_name, '') || ' ' || coalesce(members.last_name, '')), members.member_number, 'Member')
         when asset_assignments.assigned_to_type = 'department' then coalesce(departments.name, 'Department')
         when asset_assignments.assigned_to_type = 'church_role' then coalesce(asset_assignments.assigned_role, 'Church Role')
         when asset_assignments.assigned_to_type = 'location' then coalesce(asset_assignments.assigned_location, 'Location')

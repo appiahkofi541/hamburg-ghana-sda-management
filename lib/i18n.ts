@@ -7,6 +7,7 @@ export const LANGUAGE_STORAGE_KEY = "hamburg-ghana-sda-language";
 const translations = {
   en: {
     "nav.dashboard": "Dashboard",
+    "nav.churchProfile": "Church Profile",
     "nav.pastorDashboard": "Pastor Dashboard",
     "nav.members": "Members",
     "nav.visitors": "Visitors",
@@ -91,6 +92,7 @@ const translations = {
   },
   de: {
     "nav.dashboard": "Dashboard",
+    "nav.churchProfile": "Gemeindeprofil",
     "nav.pastorDashboard": "Pastoren-Dashboard",
     "nav.members": "Mitglieder",
     "nav.visitors": "Besucher",
