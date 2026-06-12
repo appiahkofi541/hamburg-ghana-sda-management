@@ -21,6 +21,9 @@ const groups: { title: string; fields: (keyof ChurchProfile)[] }[] = [
   { title: "Social Media", fields: ["social_facebook", "social_youtube", "social_instagram", "social_tiktok"] },
   { title: "Bank Details", fields: ["bank_name", "iban", "account_name"] },
 ];
+const leadershipGroup = groups.find((group) => group.title === "Leadership")!;
+const preLeadershipGroups = groups.filter((group) => group.title !== "Leadership" && group.title !== "Worship Times" && group.title !== "Social Media" && group.title !== "Bank Details");
+const postLeadershipGroups = groups.filter((group) => group.title === "Worship Times" || group.title === "Social Media" || group.title === "Bank Details");
 
 function labelize(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -229,35 +232,24 @@ export function ChurchProfileSettings() {
       </Card>
 
       <form className="space-y-5" onSubmit={save}>
-        {groups.map((group) => <Card className="p-5" key={group.title}><h2 className="font-bold text-navy">{group.title}</h2><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{group.fields.map((field) => <Input disabled={!canManage} field={field} key={field} value={profile[field]} onChange={update} />)}</div></Card>)}
-        <Card className="p-5">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <div>
-              <h2 className="font-bold text-navy">Elders</h2>
-              <p className="mt-1 text-xs text-slate-400">Leadership contacts for pastoral care and church follow-up.</p>
-            </div>
-            {canManage && <Button type="button" onClick={() => openElderForm()}><Plus className="h-4 w-4" /> Add Elder</Button>}
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {elders.map((elder) => <article className="rounded-lg border border-slate-100 p-4" key={elder.id || elder.elder_name}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-bold text-navy">{elder.elder_name}</p>
-                  <p className="mt-1 text-xs text-slate-500">{elder.elder_phone || "No phone recorded"}</p>
-                  <p className="mt-1 text-xs text-slate-500">{elder.elder_email || "No email recorded"}</p>
-                </div>
-                {canManage && <div className="flex gap-1"><Button type="button" size="icon" variant="ghost" aria-label={`Edit ${elder.elder_name}`} onClick={() => openElderForm(elder)}><Pencil className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" aria-label={`Remove ${elder.elder_name}`} onClick={() => void removeElder(elder)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
-              </div>
-            </article>)}
-            {elders.length === 0 && <p className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-500 md:col-span-2 xl:col-span-3">No elders recorded yet.</p>}
-          </div>
-        </Card>
+        {preLeadershipGroups.map((group) => <ProfileGroup canManage={canManage} group={group} key={group.title} profile={profile} onChange={update} />)}
+        <ProfileGroup canManage={canManage} group={leadershipGroup} profile={profile} onChange={update} />
+        <EldersSection canManage={canManage} elders={elders} onAdd={() => openElderForm()} onEdit={openElderForm} onRemove={(elder) => void removeElder(elder)} />
+        {postLeadershipGroups.map((group) => <ProfileGroup canManage={canManage} group={group} key={group.title} profile={profile} onChange={update} />)}
         <Card className="p-5"><h2 className="font-bold text-navy">Notes</h2><textarea className={textareaClass} disabled={!canManage} value={profile.notes} onChange={(event) => update("notes", event.target.value)} /></Card>
         {canManage && <div className="flex justify-end"><Button disabled={saving} type="submit"><Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Church Profile"}</Button></div>}
       </form>
       {showElderForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"><form className="w-full max-w-2xl rounded-xl bg-white shadow-2xl" onSubmit={saveElder}><div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="font-bold text-navy">{elderForm.id ? "Edit Elder" : "Add Elder"}</h2><p className="mt-1 text-xs text-slate-400">Church Profile leadership contact</p></div><Button type="button" size="icon" variant="ghost" aria-label="Close elder form" onClick={() => setShowElderForm(false)}><X className="h-5 w-5" /></Button></div><div className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-sm font-semibold text-slate-700 sm:col-span-2">Elder Name<input className={fieldClass} required value={elderForm.elder_name} onChange={(event) => setElderForm({ ...elderForm, elder_name: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Elder Phone<input className={fieldClass} value={elderForm.elder_phone} onChange={(event) => setElderForm({ ...elderForm, elder_phone: event.target.value })} /></label><label className="text-sm font-semibold text-slate-700">Elder Email<input className={fieldClass} type="email" value={elderForm.elder_email} onChange={(event) => setElderForm({ ...elderForm, elder_email: event.target.value })} /></label></div><div className="flex justify-end gap-2 border-t border-slate-100 p-4"><Button type="button" variant="outline" onClick={() => setShowElderForm(false)}>Cancel</Button><Button disabled={saving} type="submit">{saving ? "Saving..." : "Save Elder"}</Button></div></form></div>}
     </div>
   );
+}
+
+function ProfileGroup({ group, profile, canManage, onChange }: { group: { title: string; fields: (keyof ChurchProfile)[] }; profile: ChurchProfile; canManage: boolean; onChange: (field: keyof ChurchProfile, value: string) => void }) {
+  return <Card className="p-5"><h2 className="font-bold text-navy">{group.title}</h2><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{group.fields.map((field) => <Input disabled={!canManage} field={field} key={field} value={profile[field]} onChange={onChange} />)}</div></Card>;
+}
+
+function EldersSection({ elders, canManage, onAdd, onEdit, onRemove }: { elders: ChurchElder[]; canManage: boolean; onAdd: () => void; onEdit: (elder: ChurchElder) => void; onRemove: (elder: ChurchElder) => void }) {
+  return <Card className="p-5" id="church-profile-elders"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="font-bold text-navy">Elders</h2><p className="mt-1 text-xs text-slate-400">Leadership contacts for pastoral care and church follow-up.</p></div>{canManage && <Button type="button" onClick={onAdd}><Plus className="h-4 w-4" /> Add Elder</Button>}</div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{elders.map((elder) => <article className="rounded-lg border border-slate-100 p-4" key={elder.id || elder.elder_name}><div className="flex items-start justify-between gap-3"><div><p className="font-bold text-navy">{elder.elder_name}</p><p className="mt-1 text-xs text-slate-500">{elder.elder_phone || "No phone recorded"}</p><p className="mt-1 text-xs text-slate-500">{elder.elder_email || "No email recorded"}</p></div>{canManage && <div className="flex gap-1"><Button type="button" size="icon" variant="ghost" aria-label={`Edit ${elder.elder_name}`} onClick={() => onEdit(elder)}><Pencil className="h-4 w-4" /></Button><Button type="button" size="icon" variant="ghost" aria-label={`Delete ${elder.elder_name}`} onClick={() => onRemove(elder)}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}</div></article>)}{elders.length === 0 && <p className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-500 md:col-span-2 xl:col-span-3">No elders recorded yet.</p>}</div></Card>;
 }
 
 function Input({ field, value, disabled, onChange }: { field: keyof ChurchProfile; value: string; disabled: boolean; onChange: (field: keyof ChurchProfile, value: string) => void }) {
