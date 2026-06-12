@@ -5,6 +5,7 @@ import { getAllowedRoles, getSupabasePublicKey, hasAllowedRole, isSupabaseConfig
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
   if (request.nextUrl.pathname.startsWith("/assets/lookup/")) return response;
+  if (request.nextUrl.pathname.startsWith("/members/lookup/")) return response;
 
   const allowedRoles = getAllowedRoles(request.nextUrl.pathname);
 

@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { jsPDF as JsPDFDocument } from "jspdf";
 import {
-  Download, Eye, FileSpreadsheet, Pencil, Plus, Search, Trash2, UserRoundCheck,
+  Download, Eye, FileSpreadsheet, IdCard, Pencil, Plus, Printer, QrCode, Search, Trash2, UserRoundCheck,
   UserRoundPlus, Users, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -15,6 +16,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { useT } from "@/components/language-provider";
 import { MemberAvatar } from "@/components/member-avatar";
 import { uploadMemberPhoto, validateMemberPhoto } from "@/lib/member-photos";
+import { fallbackChurchProfile, loadPublicChurchProfile, type ChurchProfile } from "@/lib/church-profile";
 
 type MemberStatus = "Active" | "Inactive" | "Transferred" | "Deceased";
 type MemberRecord = {
@@ -107,9 +109,13 @@ export function MemberManagement() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [canManage, setCanManage] = useState(false);
+  const [canGenerateCards, setCanGenerateCards] = useState(false);
   const [statusFilter, setStatusFilter] = useState<MemberStatus | "All Statuses">("All Statuses");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [churchProfile, setChurchProfile] = useState<ChurchProfile>(fallbackChurchProfile);
+  const [cardMember, setCardMember] = useState<MemberRecord | null>(null);
+  const [cardDepartmentId, setCardDepartmentId] = useState("");
 
   useEffect(() => {
     async function loadMembers() {
@@ -118,12 +124,16 @@ export function MemberManagement() {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-          setCanManage((roleRows ?? []).some(({ role }) => ["super_admin", "pastor", "elder", "church_clerk", "secretary"].includes(role)));
+          const roleNames = (roleRows ?? []).map(({ role }) => String(role));
+          setCanManage(roleNames.some((role) => ["super_admin", "pastor", "elder", "church_clerk", "secretary"].includes(role)));
+          setCanGenerateCards(roleNames.some((role) => ["super_admin", "admin", "secretary"].includes(role)));
         }
-        const [{ data, error: loadError }, { data: departmentRows }] = await Promise.all([
+        const [{ data, error: loadError }, { data: departmentRows }, profile] = await Promise.all([
           supabase.from("members").select("*, department_members(department_id, departments(name, is_active))").order("last_name"),
           supabase.from("departments").select("id, name, is_active").order("name"),
+          loadPublicChurchProfile(supabase),
         ]);
+        setChurchProfile(profile);
         setDepartments((departmentRows ?? []).map((department) => ({ id: department.id, name: department.name, isActive: department.is_active })));
         if (loadError) {
           setError(`Unable to load members: ${loadError.message}`);
@@ -158,6 +168,7 @@ export function MemberManagement() {
       }
       const stored = window.localStorage.getItem(storageKey);
       setRecords(stored ? JSON.parse(stored) : seedMembers);
+      setCanGenerateCards(true);
       setLoading(false);
     }
     loadMembers();
@@ -294,6 +305,109 @@ export function MemberManagement() {
     document.save("Hamburg-Ghana-SDA-Members.pdf");
   }
 
+  function memberFullName(member: MemberRecord) {
+    return `${member.firstName} ${member.lastName}`.trim();
+  }
+
+  function memberLookupUrl(member: MemberRecord) {
+    const baseUrl = typeof window === "undefined" ? "https://hamburg-ghana-sda-management.vercel.app" : window.location.origin;
+    return `${baseUrl}/members/lookup/${encodeURIComponent(member.memberId)}`;
+  }
+
+  function qrImageUrl(member: MemberRecord, size = 220) {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=10&data=${encodeURIComponent(memberLookupUrl(member))}`;
+  }
+
+  async function imageToDataUrl(url: string) {
+    if (!url) return "";
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      return await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result ?? ""));
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  async function drawMemberCard(document: JsPDFDocument, member: MemberRecord, x: number, y: number, width: number, height: number) {
+    const name = memberFullName(member);
+    const [logoData, photoData, qrData] = await Promise.all([
+      imageToDataUrl(churchProfile.logo_url),
+      imageToDataUrl(member.photoThumbnailUrl || member.photoUrl),
+      imageToDataUrl(qrImageUrl(member, 260)),
+    ]);
+    document.setFillColor(8, 41, 76);
+    document.roundedRect(x, y, width, height, 4, 4, "F");
+    document.setFillColor(255, 255, 255);
+    document.roundedRect(x + 3, y + 3, width - 6, height - 6, 3, 3, "F");
+    document.setFillColor(8, 41, 76);
+    document.rect(x + 3, y + 3, width - 6, 19, "F");
+    if (logoData) document.addImage(logoData, "PNG", x + 6, y + 6, 12, 12);
+    document.setTextColor(255, 255, 255);
+    document.setFontSize(9);
+    document.text(churchProfile.church_name, x + 21, y + 11, { maxWidth: width - 28 });
+    document.setFontSize(6);
+    document.text("MEMBER ID CARD", x + 21, y + 17);
+    document.setTextColor(8, 41, 76);
+    document.setFontSize(12);
+    document.text(name, x + 6, y + 32, { maxWidth: width - 42 });
+    document.setFontSize(8);
+    document.text(member.memberId, x + 6, y + 39);
+    document.setTextColor(71, 85, 105);
+    document.setFontSize(7);
+    [["Department", member.department || "Not assigned"], ["Status", member.membershipStatus], ["Phone", member.phone || "-"], ["Email", member.email || "-"]].forEach(([label, value], index) => {
+      const rowY = y + 49 + index * 8;
+      document.setTextColor(100, 116, 139);
+      document.text(label, x + 6, rowY);
+      document.setTextColor(8, 41, 76);
+      document.text(value, x + 28, rowY, { maxWidth: width - 64 });
+    });
+    if (photoData) {
+      document.addImage(photoData, "JPEG", x + width - 34, y + 27, 25, 25);
+    } else {
+      document.setFillColor(226, 232, 240);
+      document.roundedRect(x + width - 34, y + 27, 25, 25, 3, 3, "F");
+      document.setTextColor(100, 116, 139);
+      document.setFontSize(6);
+      document.text("PHOTO", x + width - 27, y + 41);
+    }
+    if (qrData) document.addImage(qrData, "PNG", x + width - 35, y + height - 36, 27, 27);
+    document.setTextColor(100, 116, 139);
+    document.setFontSize(5);
+    document.text(memberLookupUrl(member), x + 6, y + height - 7, { maxWidth: width - 46 });
+  }
+
+  async function downloadMemberCardPdf(member: MemberRecord) {
+    const { jsPDF } = await import("jspdf");
+    const document = new jsPDF({ orientation: "landscape", unit: "mm", format: [86, 54] });
+    await drawMemberCard(document, member, 0, 0, 86, 54);
+    document.save(`${member.memberId}-ID-Card.pdf`);
+  }
+
+  async function downloadBulkCardsPdf(members: MemberRecord[], filename: string) {
+    if (!members.length) { setError("No active members found for ID card export."); return; }
+    const { jsPDF } = await import("jspdf");
+    const document = new jsPDF({ orientation: "landscape", unit: "mm", format: [86, 54] });
+    for (const [index, member] of members.entries()) {
+      if (index > 0) document.addPage([86, 54], "landscape");
+      await drawMemberCard(document, member, 0, 0, 86, 54);
+    }
+    document.save(filename);
+  }
+
+  function printMemberCard(member: MemberRecord) {
+    const printWindow = window.open("", "_blank", "width=420,height=620");
+    if (!printWindow) return;
+    const lookupUrl = memberLookupUrl(member);
+    printWindow.document.write(`<!doctype html><html><head><title>${member.memberId} ID Card</title><style>body{font-family:Arial,sans-serif;background:#f8fafc;padding:24px}.card{width:340px;border-radius:18px;overflow:hidden;background:white;border:1px solid #e2e8f0;box-shadow:0 16px 40px #0002}.head{background:#08294c;color:white;padding:16px}.body{padding:16px}.name{font-size:20px;font-weight:800;color:#08294c}.grid{display:grid;grid-template-columns:1fr auto;gap:12px}.photo{width:86px;height:86px;border-radius:12px;object-fit:cover;background:#e2e8f0}.qr{width:104px;height:104px}.label{font-size:10px;text-transform:uppercase;color:#64748b;font-weight:700}.value{font-size:13px;color:#08294c;font-weight:700;margin:2px 0 8px}@media print{body{background:white;padding:0}.card{box-shadow:none}}</style></head><body><section class="card"><div class="head"><div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase">${churchProfile.church_name}</div><div style="font-size:11px;margin-top:4px;color:#f0c15a">Member ID Card</div></div><div class="body"><div class="grid"><div><div class="name">${memberFullName(member)}</div><div class="value">${member.memberId}</div><div class="label">Department</div><div class="value">${member.department || "Not assigned"}</div><div class="label">Status</div><div class="value">${member.membershipStatus}</div></div>${member.photoThumbnailUrl || member.photoUrl ? `<img class="photo" src="${member.photoThumbnailUrl || member.photoUrl}" alt="">` : `<div class="photo"></div>`}</div><div class="grid" style="align-items:end;margin-top:12px"><div><div class="label">Phone</div><div class="value">${member.phone || "-"}</div><div class="label">Email</div><div class="value">${member.email || "-"}</div></div><img class="qr" src="${qrImageUrl(member)}" alt="QR"></div><div style="margin-top:10px;font-size:9px;color:#64748b;word-break:break-all">${lookupUrl}</div></div></section><script>window.onload=()=>{window.print();}</script></body></html>`);
+    printWindow.document.close();
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><PageHeading title={t("members.title")} description={t("members.description")} />{canManage && <Button onClick={() => openForm()}><Plus className="h-4 w-4" /> {t("button.addNewMember")}</Button>}</div>
@@ -323,6 +437,7 @@ export function MemberManagement() {
             <Button variant="outline" size="sm" onClick={exportExcel}><FileSpreadsheet className="h-4 w-4" /> {t("button.exportExcel")}</Button>
           </div>
         </div>
+        {canGenerateCards && <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-end"><Button size="sm" variant="outline" onClick={() => void downloadBulkCardsPdf(records.filter((member) => member.membershipStatus === "Active"), "Hamburg-Ghana-SDA-Active-Member-ID-Cards.pdf")}><IdCard className="h-4 w-4" /> Generate Active ID Cards</Button><select className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600" value={cardDepartmentId} onChange={(event) => setCardDepartmentId(event.target.value)}><option value="">Select department for ID cards</option>{departments.filter((department) => department.isActive).map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select><Button disabled={!cardDepartmentId} size="sm" variant="outline" onClick={() => { const department = departments.find((item) => item.id === cardDepartmentId); void downloadBulkCardsPdf(records.filter((member) => member.membershipStatus === "Active" && member.departmentId === cardDepartmentId), `${department?.name.replaceAll(" ", "-") || "Department"}-Member-ID-Cards.pdf`); }}><IdCard className="h-4 w-4" /> Generate Department ID Cards</Button></div>}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead><tr className="border-b border-slate-100 bg-slate-50/70 text-xs uppercase tracking-wide text-slate-500">{["Member", "Contact", "Department", "Personal Details", "Status", "Actions"].map((label) => <th className="px-5 py-3.5 font-semibold" key={label}>{label}</th>)}</tr></thead>
@@ -335,7 +450,7 @@ export function MemberManagement() {
                   <td className="px-5 py-4 text-slate-600">{member.department || "Not assigned"}</td>
                   <td className="px-5 py-4 text-slate-600"><p>{member.gender || "Not set"} · {member.maritalStatus || "Not set"}</p><p className="mt-1 text-xs text-slate-400">{member.occupation || "Occupation not set"}</p></td>
                   <td className="px-5 py-4"><StatusBadge tone={member.membershipStatus === "Active" ? "green" : "slate"}>{member.membershipStatus}</StatusBadge></td>
-                  <td className="px-5 py-4"><div className="flex flex-wrap gap-1"><Link href={`/members/${member.id}`}><Button variant="ghost" size="sm"><Eye className="h-4 w-4" /> {t("members.viewProfile")}</Button></Link>{canManage && <Button variant="ghost" size="sm" onClick={() => openForm(member)}><Pencil className="h-4 w-4" /> {t("members.editMember")}</Button>}{canManage && <Button variant="ghost" size="sm" onClick={() => deleteMember(member)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("members.deleteMember")}</Button>}</div></td>
+                  <td className="px-5 py-4"><div className="flex flex-wrap gap-1"><Link href={`/members/${member.id}`}><Button variant="ghost" size="sm"><Eye className="h-4 w-4" /> {t("members.viewProfile")}</Button></Link>{canGenerateCards && <Button variant="ghost" size="sm" onClick={() => setCardMember(member)}><IdCard className="h-4 w-4" /> View ID Card</Button>}{canGenerateCards && <Button variant="ghost" size="sm" onClick={() => void downloadMemberCardPdf(member)}><Download className="h-4 w-4" /> ID PDF</Button>}{canGenerateCards && <Button variant="ghost" size="sm" onClick={() => printMemberCard(member)}><Printer className="h-4 w-4" /> Print</Button>}{canManage && <Button variant="ghost" size="sm" onClick={() => openForm(member)}><Pencil className="h-4 w-4" /> {t("members.editMember")}</Button>}{canManage && <Button variant="ghost" size="sm" onClick={() => deleteMember(member)}><Trash2 className="h-4 w-4 text-rose-600" /> {t("members.deleteMember")}</Button>}</div></td>
                 </tr>
               ))}
             </tbody>
@@ -367,6 +482,16 @@ export function MemberManagement() {
           </form>
         </div>
       )}
+      {cardMember && <MemberIdCardModal church={churchProfile} lookupUrl={memberLookupUrl(cardMember)} member={cardMember} qrUrl={qrImageUrl(cardMember)} onClose={() => setCardMember(null)} onDownload={() => void downloadMemberCardPdf(cardMember)} onPrint={() => printMemberCard(cardMember)} />}
     </div>
   );
+}
+
+function MemberIdCardModal({ member, church, lookupUrl, qrUrl, onClose, onDownload, onPrint }: { member: MemberRecord; church: ChurchProfile; lookupUrl: string; qrUrl: string; onClose: () => void; onDownload: () => void; onPrint: () => void }) {
+  const fullName = `${member.firstName} ${member.lastName}`.trim();
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-xl rounded-xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="font-bold text-navy">Member ID Card</h2><p className="mt-1 text-xs text-slate-400">{member.memberId}</p></div><Button type="button" variant="ghost" size="icon" aria-label="Close ID card" onClick={onClose}><X className="h-5 w-5" /></Button></div><div className="p-5"><section className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"><div className="flex items-center gap-3 bg-navy-deep p-4 text-white">{church.logo_url ? <object aria-label={`${church.church_name} logo`} className="h-10 w-10 rounded bg-white object-contain p-1" data={church.logo_url} type="image/png"><IdCard className="h-8 w-8 text-gold" /></object> : <div className="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-gold"><IdCard className="h-6 w-6" /></div>}<div><p className="text-xs font-bold uppercase tracking-[0.16em] text-gold">{church.church_name}</p><p className="mt-1 text-xs text-blue-100">Member ID Card</p></div></div><div className="p-4"><div className="grid grid-cols-[1fr_auto] gap-4"><div><h3 className="text-xl font-black text-navy">{fullName}</h3><p className="mt-1 text-sm font-bold text-churchblue">{member.memberId}</p><InfoText label="Department" value={member.department || "Not assigned"} /><InfoText label="Role / Status" value={member.membershipStatus} /></div><MemberAvatar alt={fullName} size="lg" src={member.photoThumbnailUrl || member.photoUrl} /></div><div className="mt-4 grid grid-cols-[1fr_auto] gap-4"><div><InfoText label="Phone" value={member.phone || "-"} /><InfoText label="Email" value={member.email || "-"} /></div><object aria-label={`QR code for ${member.memberId}`} className="h-28 w-28 rounded-lg border border-slate-100 p-2" data={qrUrl} type="image/png"><QrCode className="h-20 w-20 text-slate-300" /></object></div><p className="mt-3 break-all text-[10px] text-slate-400">{lookupUrl}</p></div></section><div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={onDownload}><Download className="h-4 w-4" /> Download ID Card PDF</Button><Button variant="outline" onClick={onPrint}><Printer className="h-4 w-4" /> Print ID Card</Button><Button onClick={onClose}>Done</Button></div></div></div></div>;
+}
+
+function InfoText({ label, value }: { label: string; value: string }) {
+  return <div className="mt-3"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="text-sm font-bold text-navy">{value}</p></div>;
 }
