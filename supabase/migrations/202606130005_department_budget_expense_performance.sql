@@ -86,6 +86,30 @@ as $$
   select public.has_any_role(array['super_admin', 'admin', 'treasurer']::public.app_role[]);
 $$;
 
+create or replace function public.is_department_leader_for_department(target_department_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.departments
+    where departments.id = target_department_id
+      and departments.leader_id = auth.uid()
+  )
+  or exists (
+    select 1
+    from public.department_members
+    join public.members
+      on members.id = department_members.member_id
+    where department_members.department_id = target_department_id
+      and department_members.is_department_head = true
+      and members.profile_id = auth.uid()
+  );
+$$;
+
 create or replace function public.can_submit_department_updates(target_department_id uuid)
 returns boolean
 language sql
@@ -262,5 +286,6 @@ grant select, insert, update, delete on public.department_performance to authent
 
 grant execute on function public.can_view_department_reports() to authenticated;
 grant execute on function public.can_manage_department_budgets() to authenticated;
+grant execute on function public.is_department_leader_for_department(uuid) to authenticated;
 grant execute on function public.can_submit_department_updates(uuid) to authenticated;
 grant execute on function public.department_budget_expense_total(uuid, integer) to authenticated;
