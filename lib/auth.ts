@@ -67,7 +67,7 @@ export const ROUTE_ROLES: Record<string, AppRole[]> = {
   "/livestream": allRoles,
   "/whatsapp": ["super_admin", "pastor", "elder", "church_clerk", "secretary"],
   "/reports": ["super_admin", "pastor", "elder", "treasurer", "secretary"],
-  "/advanced-modules": ["super_admin", "pastor", "elder"],
+  "/advanced-modules": ["super_admin", "pastor", "elder", "secretary", "treasurer"],
   "/settings": ["super_admin"],
   "/users": ["super_admin"],
   "/change-password": allRoles,

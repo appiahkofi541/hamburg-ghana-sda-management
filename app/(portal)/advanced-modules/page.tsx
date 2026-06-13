@@ -1,24 +1,42 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Archive,
   BadgeEuro,
-  BellRing,
   MessageCircle,
   RadioTower,
   Send,
   Smartphone,
-  Vote,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
 import { StatusBadge } from "@/components/status-badge";
 import { Card } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/client";
+import { hasAllowedRole, normalizeRoles, type AppRole } from "@/lib/auth";
 
-const modules = [
+type ModuleStatus = "Live" | "Coming Soon";
+type AdvancedModule = {
+  name: string;
+  description: string;
+  technology: string;
+  icon: LucideIcon;
+  tone: string;
+  status: ModuleStatus;
+  href?: string;
+  allowedRoles?: AppRole[];
+};
+
+const modules: AdvancedModule[] = [
   {
     name: "Mobile App",
     description: "Give members a convenient mobile home for church updates, events, giving, and ministry resources.",
     technology: "React Native with Expo",
     icon: Smartphone,
     tone: "bg-blue-50 text-churchblue",
+    status: "Coming Soon",
   },
   {
     name: "SMS Notifications",
@@ -26,6 +44,7 @@ const modules = [
     technology: "Twilio SMS API",
     icon: Send,
     tone: "bg-emerald-50 text-emerald-700",
+    status: "Coming Soon",
   },
   {
     name: "WhatsApp Notifications",
@@ -34,6 +53,8 @@ const modules = [
     icon: MessageCircle,
     tone: "bg-green-50 text-green-700",
     status: "Live",
+    href: "/whatsapp",
+    allowedRoles: ["super_admin", "pastor", "elder", "church_clerk", "secretary"],
   },
   {
     name: "Online Tithe Payment",
@@ -41,7 +62,7 @@ const modules = [
     technology: "Stripe Payments with Supabase",
     icon: BadgeEuro,
     tone: "bg-amber-50 text-amber-700",
-    status: "Live",
+    status: "Coming Soon",
   },
   {
     name: "Livestream Integration",
@@ -50,6 +71,8 @@ const modules = [
     icon: RadioTower,
     tone: "bg-rose-50 text-rose-700",
     status: "Live",
+    href: "/livestream",
+    allowedRoles: ["super_admin", "pastor", "elder", "church_clerk", "secretary", "treasurer", "department_head", "member"],
   },
   {
     name: "Sermon Archive",
@@ -58,40 +81,43 @@ const modules = [
     icon: Archive,
     tone: "bg-purple-50 text-purple-700",
     status: "Live",
-  },
-  {
-    name: "Prayer Request Portal",
-    description: "Offer a private, caring space for members to submit prayer needs and request follow-up.",
-    technology: "Next.js Forms with Supabase RLS",
-    icon: BellRing,
-    tone: "bg-cyan-50 text-cyan-700",
-    status: "Live",
-  },
-  {
-    name: "Church Voting System",
-    description: "Support transparent member voting for church decisions with secure eligibility controls.",
-    technology: "Supabase Auth with PostgreSQL",
-    icon: Vote,
-    tone: "bg-indigo-50 text-indigo-700",
+    href: "/sermons",
+    allowedRoles: ["super_admin", "pastor", "elder", "church_clerk", "secretary", "treasurer", "department_head", "member"],
   },
 ];
 
 export default function AdvancedModulesPage() {
+  const [roles, setRoles] = useState<AppRole[]>([]);
+
+  useEffect(() => {
+    async function loadRoles() {
+      const supabase = createClient();
+      if (!supabase) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
+      setRoles(normalizeRoles((data ?? []).map(({ role }) => role)));
+    }
+    loadRoles();
+  }, []);
+
   return (
     <div className="space-y-6">
       <PageHeading
         title="Advanced Modules"
-        description="Future expansion roadmap for Hamburg Ghana SDA Church."
+        description="Current status of extended digital ministry modules for Hamburg Ghana SDA Church."
       />
       <section className="rounded-xl border border-blue-100 bg-gradient-to-r from-navy to-churchblue px-5 py-6 text-white shadow-card sm:px-7">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Growth Roadmap</p>
-        <h2 className="mt-3 text-xl font-bold sm:text-2xl">Building the next chapter of digital ministry</h2>
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Module Status</p>
+        <h2 className="mt-3 text-xl font-bold sm:text-2xl">Working tools and planned integrations</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-blue-100">
-          These planned modules will extend the Hamburg Ghana SDA Church Management System as the needs of our church family grow.
+          Live modules open the working page for authorized users. Planned or partially configured integrations remain marked as coming soon.
         </p>
       </section>
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {modules.map(({ name, description, technology, icon: Icon, tone, status = "Coming Soon" }) => (
+        {modules.map(({ name, description, technology, icon: Icon, tone, status, href, allowedRoles }) => {
+          const canOpen = status === "Live" && href && (!allowedRoles || hasAllowedRole(roles, allowedRoles));
+          return (
           <Card className="flex min-h-64 flex-col p-5" key={name}>
             <div className="flex items-start justify-between gap-3">
               <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${tone}`}>
@@ -105,8 +131,12 @@ export default function AdvancedModulesPage() {
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Recommended Technology</p>
               <p className="mt-1 text-sm font-semibold text-churchblue">{technology}</p>
             </div>
+            <div className="mt-4 min-h-10">
+              {canOpen ? <Link className="inline-flex h-9 items-center justify-center rounded-lg bg-churchblue px-3 text-sm font-semibold text-white transition-colors hover:bg-navy" href={href}>Open Module</Link> : status === "Live" ? <p className="text-xs font-semibold text-slate-400">Available to authorized roles</p> : <p className="text-xs font-semibold text-slate-400">Planned module</p>}
+            </div>
           </Card>
-        ))}
+          );
+        })}
       </section>
     </div>
   );
