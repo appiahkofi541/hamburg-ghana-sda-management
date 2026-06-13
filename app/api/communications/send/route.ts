@@ -53,8 +53,8 @@ function providerMessage(channel: string) {
   return "Notification provider is not configured yet.";
 }
 
-function memberName(member: { full_name?: string | null; first_name?: string | null; last_name?: string | null; member_id?: string | null }) {
-  return member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_id || "Member";
+function memberName(member: { full_name?: string | null; first_name?: string | null; last_name?: string | null; member_number?: string | null }) {
+  return member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_number || "Member";
 }
 
 function memberContact(member: { email?: string | null; phone?: string | null }, channel: string) {
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     if (!requestedRole || !roleRecipients.has(requestedRole)) return NextResponse.json({ error: "Select a valid recipient role." }, { status: 400 });
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email, user_roles!inner(role), members(id, member_id, phone)")
+      .select("id, full_name, email, user_roles!inner(role), members(id, member_number, phone)")
       .eq("user_roles.role", requestedRole);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     recipients.push(...(data ?? []).map((profile) => {
@@ -167,7 +167,7 @@ export async function POST(request: Request) {
   } else {
     const membersQuery = supabase
       .from("members")
-      .select("id, member_id, full_name, first_name, last_name, email, phone, department_members(departments(name))")
+      .select("id, member_number, full_name, first_name, last_name, email, phone, department_members(departments(name))")
       .eq("status", "active");
     const { data, error } = campaign.target_audience === "individual" && campaign.recipient_member_id
       ? await membersQuery.eq("id", campaign.recipient_member_id)
