@@ -22,6 +22,8 @@ type AttendanceRecord = {
   categoryId: string;
   categoryName: string;
   memberId: string;
+  memberFirstName: string;
+  memberLastName: string;
   memberName: string;
   memberNumber: string;
   memberPhoto: string;
@@ -99,6 +101,19 @@ function statusTone(status: AttendanceStatus) {
   return "slate";
 }
 
+function attendanceSearchText(record: AttendanceRecord) {
+  return [
+    record.memberFirstName,
+    record.memberLastName,
+    record.memberName,
+    record.memberNumber,
+    record.visitorName,
+    record.categoryName,
+    record.departmentName,
+    record.notes,
+  ].join(" ").toLowerCase();
+}
+
 export function AttendanceManagement() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>(defaultCategories);
@@ -141,7 +156,7 @@ export function AttendanceManagement() {
       supabase.from("departments").select("id, name, is_active").order("name"),
       supabase
         .from("attendance_entries")
-        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_number, full_name, photo_thumbnail_url, photo_url), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
+        .select("id, session_id, member_id, visitor_name, status, notes, checked_in_at, department_id, recorded_by, attendance_sessions(id, service_name, service_date, attendance_category_id, department_id), members(id, member_number, first_name, last_name, full_name, photo_thumbnail_url, photo_url), departments(id, name), recorded_by_profile:profiles!attendance_entries_recorded_by_fkey(full_name)")
         .order("checked_in_at", { ascending: false }),
     ]);
 
@@ -177,6 +192,11 @@ export function AttendanceManagement() {
         const department = Array.isArray(row.departments) ? row.departments[0] : row.departments;
         const recorder = Array.isArray(row.recorded_by_profile) ? row.recorded_by_profile[0] : row.recorded_by_profile;
         const category = (categoryResult.data ?? []).find((item) => item.id === session?.attendance_category_id);
+        const departmentId = row.department_id ?? session?.department_id ?? "";
+        const departmentName = department?.name ?? (departmentResult.data ?? []).find((item) => item.id === departmentId)?.name ?? "";
+        const memberFirstName = member?.first_name ?? "";
+        const memberLastName = member?.last_name ?? "";
+        const memberName = member?.full_name ?? `${memberFirstName} ${memberLastName}`.trim();
         return {
           id: row.id,
           sessionId: row.session_id,
@@ -184,12 +204,14 @@ export function AttendanceManagement() {
           categoryId: session?.attendance_category_id ?? "",
           categoryName: category?.name ?? session?.service_name ?? "Attendance",
           memberId: row.member_id ?? "",
-          memberName: member?.full_name ?? "",
+          memberFirstName,
+          memberLastName,
+          memberName,
           memberNumber: member ? memberNumber(member) : "",
           memberPhoto: member?.photo_thumbnail_url ?? member?.photo_url ?? "",
           visitorName: row.visitor_name ?? "",
-          departmentId: row.department_id ?? session?.department_id ?? "",
-          departmentName: department?.name ?? "",
+          departmentId,
+          departmentName,
           status: titleCase(row.status) as AttendanceStatus,
           notes: row.notes ?? "",
           recordedBy: recorder?.full_name ?? "Church Leader",
@@ -206,7 +228,7 @@ export function AttendanceManagement() {
       (!selectedMonth || rowDate(record) === selectedMonth)
       && (selectedCategory === "All Categories" || record.categoryName === selectedCategory)
       && (selectedDepartment === "All Departments" || record.departmentName === selectedDepartment)
-      && (!normalized || Object.values(record).some((value) => String(value).toLowerCase().includes(normalized)))
+      && (!normalized || attendanceSearchText(record).includes(normalized))
     );
   }, [query, records, selectedCategory, selectedDepartment, selectedMonth]);
 
