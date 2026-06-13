@@ -52,7 +52,7 @@ export function DepartmentManagement() {
           setCanManageAll(roles.some((role) => ["super_admin", "pastor", "church_clerk", "secretary"].includes(role)));
         }
         const [{ data, error: loadError }, { data: profileRows }, { data: membershipRows }, { data: ministryGroupRows }] = await Promise.all([
-          supabase.from("departments").select("*, leader:profiles(full_name, email)").order("name"),
+          supabase.from("departments").select("*, leader:profiles!departments_leader_id_fkey(full_name, email)").order("name"),
           supabase.from("profiles").select("id, full_name, email, user_roles(role)").eq("is_active", true).order("full_name"),
           supabase.from("department_members").select("department_id"),
           supabase.from("record_settings").select("id, name, is_active").eq("setting_group", "ministry_group").order("sort_order").order("name"),
