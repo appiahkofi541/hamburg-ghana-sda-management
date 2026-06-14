@@ -9,6 +9,12 @@ function normalizePhone(value: string) {
   return digits.startsWith("00") ? digits.slice(2) : digits;
 }
 
+export async function GET() {
+  return NextResponse.json({
+    configured: Boolean(process.env.WHATSAPP_ACCESS_TOKEN?.trim() && process.env.WHATSAPP_PHONE_NUMBER_ID?.trim()),
+  });
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   if (!supabase) return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
@@ -25,6 +31,10 @@ export async function POST(request: Request) {
   const { data: campaign, error: campaignError } = await supabase.from("whatsapp_campaigns").select("*").eq("id", campaignId).single();
   if (campaignError) return NextResponse.json({ error: campaignError.message }, { status: 404 });
 
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneNumberId) return NextResponse.json({ error: "WhatsApp sending is disabled until WhatsApp API credentials are configured." }, { status: 503 });
+
   const { data: members, error: membersError } = await supabase.from("whatsapp_contacts").select("member_id, phone, members!inner(status)").eq("opted_in", true).eq("members.status", "active");
   if (membersError) return NextResponse.json({ error: membersError.message }, { status: 500 });
   const recipients = (members ?? []).map((member) => ({ member_id: member.member_id, phone: normalizePhone(member.phone) })).filter(({ phone }) => phone.length >= 8);
@@ -33,10 +43,6 @@ export async function POST(request: Request) {
   const { error: deliveryError } = await supabase.from("whatsapp_deliveries").upsert(recipients.map((recipient) => ({ campaign_id: campaign.id, ...recipient })), { onConflict: "campaign_id,member_id" });
   if (deliveryError) return NextResponse.json({ error: deliveryError.message }, { status: 500 });
   await supabase.from("whatsapp_campaigns").update({ status: "queued", recipient_count: recipients.length }).eq("id", campaign.id);
-
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  if (!token || !phoneNumberId) return NextResponse.json({ error: "Campaign queued. Configure WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID on the server to deliver messages.", queued: recipients.length }, { status: 503 });
 
   await supabase.from("whatsapp_campaigns").update({ status: "sending" }).eq("id", campaign.id);
   const apiVersion = process.env.WHATSAPP_GRAPH_API_VERSION || "v25.0";
