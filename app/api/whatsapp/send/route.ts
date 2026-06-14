@@ -31,14 +31,14 @@ export async function POST(request: Request) {
   const { data: campaign, error: campaignError } = await supabase.from("whatsapp_campaigns").select("*").eq("id", campaignId).single();
   if (campaignError) return NextResponse.json({ error: campaignError.message }, { status: 404 });
 
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  if (!token || !phoneNumberId) return NextResponse.json({ error: "WhatsApp sending is disabled until WhatsApp API credentials are configured." }, { status: 503 });
-
   const { data: members, error: membersError } = await supabase.from("whatsapp_contacts").select("member_id, phone, members!inner(status)").eq("opted_in", true).eq("members.status", "active");
   if (membersError) return NextResponse.json({ error: membersError.message }, { status: 500 });
-  const recipients = (members ?? []).map((member) => ({ member_id: member.member_id, phone: normalizePhone(member.phone) })).filter(({ phone }) => phone.length >= 8);
-  if (!recipients.length) return NextResponse.json({ error: "No active members have opted in with a valid WhatsApp phone number." }, { status: 400 });
+  const recipients = (members ?? []).map((member) => ({ member_id: member.member_id, phone: normalizePhone(member.phone ?? "") })).filter(({ phone }) => phone.length >= 8);
+  if (!recipients.length) return NextResponse.json({ error: "No opted-in WhatsApp recipients found." }, { status: 400 });
+
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneNumberId) return NextResponse.json({ error: "WhatsApp sending is disabled until WhatsApp Business API credentials are configured." }, { status: 503 });
 
   const { error: deliveryError } = await supabase.from("whatsapp_deliveries").upsert(recipients.map((recipient) => ({ campaign_id: campaign.id, ...recipient })), { onConflict: "campaign_id,member_id" });
   if (deliveryError) return NextResponse.json({ error: deliveryError.message }, { status: 500 });

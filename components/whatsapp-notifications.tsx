@@ -45,7 +45,7 @@ type CampaignForm = {
 };
 type MemberContact = { id: string; name: string; phone: string; whatsappPhone: string; optedIn: boolean };
 
-const disabledMessage = "WhatsApp sending is disabled until WhatsApp API credentials are configured.";
+const disabledMessage = "WhatsApp sending is disabled until WhatsApp Business API credentials are configured.";
 const fieldClass = "mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-churchblue";
 const textareaClass = "mt-1.5 min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-churchblue";
 const campaignMeta: Record<CampaignType, { label: string; description: string; icon: LucideIcon; tone: string }> = {
@@ -131,7 +131,7 @@ export function WhatsAppNotifications() {
       const savedContacts = new Map((contactRows ?? []).map((contact) => [contact.member_id, contact]));
       const contacts = (memberRows ?? []).map((row) => ({ id: row.id, name: row.full_name, phone: row.phone ?? "", whatsappPhone: savedContacts.get(row.id)?.phone ?? "", optedIn: savedContacts.get(row.id)?.opted_in ?? false }));
       setMembers(contacts);
-      setOptedInCount(contacts.filter(({ optedIn }) => optedIn).length);
+      setOptedInCount(contacts.filter(({ optedIn, whatsappPhone }) => optedIn && whatsappPhone.trim()).length);
     }
     setLoading(false);
   }
@@ -180,12 +180,17 @@ export function WhatsAppNotifications() {
   }
 
   async function sendCampaign(campaign: Campaign) {
+    setNotice("");
+    setError("");
+    if (optedInCount === 0) {
+      setError("No opted-in WhatsApp recipients found.");
+      return;
+    }
     if (!whatsappConfigured) {
       setError(disabledMessage);
       return;
     }
     setSendingId(campaign.id);
-    setError("");
     const response = await fetch("/api/whatsapp/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ campaignId: campaign.id }) });
     const result = await response.json();
     if (!response.ok) setError(result.error || "Unable to send WhatsApp campaign.");
@@ -233,7 +238,7 @@ function CampaignCard({ campaign, sending, sendingEnabled, onSend }: { campaign:
   const Icon = meta.icon;
   const tone = campaign.status === "sent" ? "green" : campaign.status === "failed" || campaign.status === "partially_failed" ? "red" : campaign.status === "queued" || campaign.status === "sending" ? "gold" : "slate";
   const scheduledText = campaign.scheduledAt ? `Scheduled: ${new Date(campaign.scheduledAt).toLocaleString()}` : "No schedule";
-  return <article className="rounded-xl border border-slate-100 p-5"><div className="flex items-start justify-between gap-3"><div className={`rounded-lg p-3 ${meta.tone}`}><Icon className="h-5 w-5" /></div><StatusBadge tone={tone}>{pretty(campaign.status)}</StatusBadge></div><p className="mt-4 text-xs font-bold uppercase tracking-wide text-green-700">{meta.label}</p><h3 className="mt-1 font-bold text-navy">{campaign.title}</h3><p className="mt-2 text-sm leading-6 text-slate-500">{campaign.messageBody || campaign.messagePreview}</p><p className="mt-4 text-xs text-slate-400">Audience: {pretty(campaign.audience)} · Template: {campaign.templateName} · {scheduledText} · Created {campaign.createdAt}</p><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-xs font-semibold text-slate-400">{campaign.recipients} recipients · {campaign.sent} sent · {campaign.failed} failed</p><Button disabled={sending || campaign.status === "sending" || !sendingEnabled} size="sm" title={sendingEnabled ? undefined : disabledMessage} onClick={() => onSend(campaign)}><Send className="h-4 w-4" /> {sending ? "Sending..." : campaign.status === "sent" ? "Send Again" : "Send Campaign"}</Button></div></article>;
+  return <article className="rounded-xl border border-slate-100 p-5"><div className="flex items-start justify-between gap-3"><div className={`rounded-lg p-3 ${meta.tone}`}><Icon className="h-5 w-5" /></div><StatusBadge tone={tone}>{pretty(campaign.status)}</StatusBadge></div><p className="mt-4 text-xs font-bold uppercase tracking-wide text-green-700">{meta.label}</p><h3 className="mt-1 font-bold text-navy">{campaign.title}</h3><p className="mt-2 text-sm leading-6 text-slate-500">{campaign.messageBody || campaign.messagePreview}</p><p className="mt-4 text-xs text-slate-400">Audience: {pretty(campaign.audience)} · Template: {campaign.templateName} · {scheduledText} · Created {campaign.createdAt}</p><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-xs font-semibold text-slate-400">{campaign.recipients} recipients · {campaign.sent} sent · {campaign.failed} failed</p><Button disabled={sending || campaign.status === "sending"} size="sm" title={sendingEnabled ? undefined : disabledMessage} onClick={() => onSend(campaign)}><Send className="h-4 w-4" /> {sending ? "Sending..." : campaign.status === "sent" ? "Send Again" : "Send Campaign"}</Button></div></article>;
 }
 
 function CampaignModal({ error, form, saving, sendingEnabled, onClose, onForm, onSubmit }: { error: string; form: CampaignForm; saving: boolean; sendingEnabled: boolean; onClose: () => void; onForm: (form: CampaignForm) => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
