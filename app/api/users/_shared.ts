@@ -17,5 +17,5 @@ export async function requireAdmin() {
 }
 
 export function serviceRoleMissingMessage() {
-  return "SUPABASE_SERVICE_ROLE_KEY is missing on the server. Add SUPABASE_SERVICE_ROLE_KEY=your-service-role-key to .env.local, save the file, then restart the preview server. Do not prefix it with NEXT_PUBLIC_.";
+  return "New user invitations are not configured on the server. Add the Supabase service role key as a private deployment environment variable, then redeploy or restart the server.";
 }
