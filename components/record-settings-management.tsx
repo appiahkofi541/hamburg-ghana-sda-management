@@ -73,11 +73,11 @@ export function RecordSettingsManagement() {
       setUserId(user.id);
       const { data: roleRows } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
       const roles = normalizeRoles((roleRows ?? []).map(({ role }) => role));
-      setCanManage(roles.some((role) => ["super_admin", "admin", "pastor", "church_clerk", "secretary", "treasurer"].includes(role)));
+      setCanManage(roles.some((role) => role === "super_admin"));
     }
     const { data, error: loadError } = await supabase.from("record_settings").select("*").order("setting_group").order("sort_order").order("name");
     if (loadError) {
-      setError(`Configurable records are not ready yet: ${loadError.message}. Apply migration 202606090005_future_proof_record_settings.sql in Supabase.`);
+      setError(`Configurable records are not ready yet: ${loadError.message}. Apply migration 202606140001_record_settings_table_fix.sql in Supabase.`);
       setRows([]);
     } else {
       setRows((data ?? []).map((row) => ({
@@ -173,7 +173,7 @@ export function RecordSettingsManagement() {
       <CardContent className="space-y-4">
         {notice && <p className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-churchblue">{notice}</p>}
         {error && <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
-        {!canManage && <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Only authorized leaders can manage configurable records.</p>}
+        {!canManage && <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Read-only access: only Super Admin can manage configurable records.</p>}
         <div className="flex gap-2 overflow-x-auto">
           {groups.map((group) => <Button key={group.id} size="sm" variant={activeGroup === group.id ? "default" : "outline"} onClick={() => setActiveGroup(group.id)}>{group.label}</Button>)}
         </div>
