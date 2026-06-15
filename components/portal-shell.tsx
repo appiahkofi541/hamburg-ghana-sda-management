@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Archive, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, ClipboardCheck, ClipboardList,
-  BadgeEuro, Building2, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, RefreshCw, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, UsersRound, X,
+  BadgeEuro, Building2, Gavel, HeartHandshake, IdCard, KeyRound, LayoutDashboard, Library, LogOut, Mail, Megaphone, Menu, MessageCircle, RadioTower, ReceiptText, RefreshCw, Settings, ShieldCheck, Sparkles, UserRoundCog, Users, UsersRound, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { LogoMark } from "@/components/logo-mark";
@@ -33,6 +33,7 @@ const nav = [
   { labelKey: "nav.events", href: "/events", icon: CalendarDays },
   { labelKey: "nav.eventRegistrations", href: "/event-registrations", icon: UsersRound },
   { labelKey: "nav.eventAttendance", href: "/event-attendance", icon: ClipboardCheck },
+  { labelKey: "nav.governance", href: "/governance", icon: Gavel },
   { labelKey: "nav.announcements", href: "/announcements", icon: Megaphone },
   { labelKey: "nav.communications", href: "/communications", icon: Mail },
   { labelKey: "nav.assets", href: "/assets", icon: Archive },
@@ -54,6 +55,7 @@ const memberNav = [
   { labelKey: "nav.myContributions", href: "/my-contributions", icon: ReceiptText },
   { labelKey: "nav.prayerRequests", href: "/prayer-requests", icon: HeartHandshake },
   { labelKey: "nav.events", href: "/events", icon: CalendarDays },
+  { labelKey: "nav.governance", href: "/governance", icon: Gavel },
   { labelKey: "nav.announcements", href: "/announcements", icon: Megaphone },
   { labelKey: "nav.sermons", href: "/sermons", icon: Library },
 ];
