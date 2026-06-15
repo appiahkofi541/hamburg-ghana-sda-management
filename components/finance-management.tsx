@@ -221,7 +221,6 @@ function transactionQuarter(date: string) {
 
 type RawFinanceMember = {
   id: string;
-  member_id?: string | null;
   member_number?: string | null;
   first_name?: string | null;
   last_name?: string | null;
@@ -235,12 +234,11 @@ function financeMemberName(member: RawFinanceMember) {
 }
 
 function financeMemberNumber(member: RawFinanceMember) {
-  return member.member_id || member.member_number || member.id.slice(0, 8).toUpperCase();
+  return member.member_number || member.id.slice(0, 8).toUpperCase();
 }
 
 async function loadActiveFinanceMembers(supabase: NonNullable<ReturnType<typeof createClient>>) {
   const selects = [
-    "id, member_id, first_name, last_name, full_name, email, phone",
     "id, member_number, first_name, last_name, full_name, email, phone",
     "id, full_name, email, phone",
   ];

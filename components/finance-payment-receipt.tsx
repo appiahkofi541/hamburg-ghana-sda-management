@@ -32,7 +32,7 @@ function memberDetails(value: unknown) {
   const fallbackName = `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim();
   return {
     name: String(member.full_name || fallbackName || "Not linked to member"),
-    number: String(member.member_number || member.member_id || "-"),
+    number: String(member.member_number || "-"),
   };
 }
 

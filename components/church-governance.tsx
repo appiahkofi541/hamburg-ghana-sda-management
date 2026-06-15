@@ -45,8 +45,8 @@ const pretty = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (l
 function relatedName(value: unknown): string {
   if (!value) return "";
   if (Array.isArray(value)) return relatedName(value[0]);
-  const row = value as { full_name?: unknown; member_number?: unknown; member_id?: unknown };
-  return String(row.full_name ?? row.member_number ?? row.member_id ?? "");
+  const row = value as { full_name?: unknown; member_number?: unknown };
+  return String(row.full_name ?? row.member_number ?? "");
 }
 
 function downloadExcel(name: string, headers: string[], rows: (string | number)[][]) {
@@ -112,10 +112,10 @@ export function ChurchGovernance() {
       setVoteForm((current) => ({ ...current, memberId: member?.id ?? current.memberId }));
     }
     const [memberResult, meetingResult, pollResult, candidateResult, ballotResult, actionResult, attendanceResult, committeeResult, auditResult] = await Promise.all([
-      supabase.from("members").select("id, full_name, member_number, member_id").eq("status", "active").order("full_name"),
+      supabase.from("members").select("id, full_name, member_number").eq("status", "active").order("full_name"),
       supabase.from("governance_meetings").select("*").order("meeting_date", { ascending: false }),
       supabase.from("governance_polls").select("*").order("created_at", { ascending: false }),
-      supabase.from("governance_candidates").select("*, members(full_name, member_number, member_id)").order("sort_order"),
+      supabase.from("governance_candidates").select("*, members(full_name, member_number)").order("sort_order"),
       supabase.from("governance_ballots").select("*, members(full_name)").order("cast_at", { ascending: false }),
       supabase.from("governance_action_items").select("*").order("created_at", { ascending: false }),
       supabase.from("governance_attendance").select("*, members(full_name)").order("created_at", { ascending: false }),
@@ -125,7 +125,7 @@ export function ChurchGovernance() {
     const firstError = [memberResult, meetingResult, pollResult, candidateResult, ballotResult, attendanceResult].find((result) => result.error)?.error?.message;
     if (firstError) setError(`${firstError}. Apply migration 202606150001_church_governance_voting.sql in Supabase.`);
     else setError("");
-    setMembers((memberResult.data ?? []).map((row) => ({ id: row.id, name: row.full_name ?? "Unnamed Member", memberNumber: row.member_number ?? row.member_id ?? row.id.slice(0, 8) })));
+    setMembers((memberResult.data ?? []).map((row) => ({ id: row.id, name: row.full_name ?? "Unnamed Member", memberNumber: row.member_number ?? row.id.slice(0, 8).toUpperCase() })));
     setMeetings((meetingResult.data ?? []).map((row) => ({ id: row.id, type: row.meeting_type, title: row.title, date: row.meeting_date, location: row.location ?? "", quorumRequired: Number(row.quorum_required), quorumPresent: Number(row.quorum_present), agenda: row.agenda ?? "", minutes: row.minutes ?? "", status: row.status })));
     setPolls((pollResult.data ?? []).map((row) => ({ id: row.id, meetingId: row.meeting_id ?? "", moduleType: row.module_type, kind: row.vote_kind, mode: row.vote_mode, title: row.title, description: row.description ?? "", officeTitle: row.office_title ?? "", status: row.status, quorumRequired: Number(row.quorum_required), quorumPresent: Number(row.quorum_present) })));
     setCandidates((candidateResult.data ?? []).map((row) => ({ id: row.id, pollId: row.poll_id, memberId: row.member_id ?? "", name: row.candidate_name || relatedName(row.members), officeTitle: row.office_title ?? "" })));

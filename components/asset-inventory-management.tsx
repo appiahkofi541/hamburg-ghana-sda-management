@@ -185,7 +185,7 @@ export function AssetInventoryManagement() {
       supabase.from("inventory_items").select("*").order("name"),
       supabase.from("inventory_purchases").select("*").order("purchase_date", { ascending: false }),
       supabase.from("inventory_adjustments").select("*").order("created_at", { ascending: false }),
-      supabase.from("members").select("id, member_id, full_name, first_name, last_name").eq("status", "active").order("full_name"),
+      supabase.from("members").select("id, member_number, full_name, first_name, last_name").eq("status", "active").order("full_name"),
       supabase.from("departments").select("id, name").eq("is_active", true).order("name"),
     ]);
     setChurchProfile(await loadPublicChurchProfile(supabase));
@@ -216,7 +216,7 @@ export function AssetInventoryManagement() {
     setInventory((inventoryResult.data ?? []).map((row) => ({ id: row.id, itemNumber: row.item_number, name: row.name, category: row.category ?? "", description: row.description ?? "", quantity: Number(row.quantity ?? 0), reorderLevel: Number(row.reorder_level ?? 0), unitCost: Number(row.unit_cost ?? 0), supplier: row.supplier ?? "", location: row.location ?? "", notes: row.notes ?? "" })));
     setPurchases((purchaseResult.data ?? []).map((row) => ({ id: row.id, inventoryItemId: row.inventory_item_id, purchaseDate: row.purchase_date ?? "", quantity: Number(row.quantity ?? 0), unitCost: Number(row.unit_cost ?? 0), supplier: row.supplier ?? "", receiptReference: row.receipt_reference ?? "", notes: row.notes ?? "" })));
     setAdjustments((adjustmentResult.data ?? []).map((row) => ({ id: row.id, inventoryItemId: row.inventory_item_id, adjustmentDate: row.adjustment_date ?? "", quantityChange: Number(row.quantity_change ?? 0), reason: row.reason ?? "", notes: row.notes ?? "" })));
-    setMembers((memberResult.data ?? []).map((member) => ({ id: member.id, name: member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_id || "Member" })));
+    setMembers((memberResult.data ?? []).map((member) => ({ id: member.id, name: member.full_name || `${member.first_name ?? ""} ${member.last_name ?? ""}`.trim() || member.member_number || "Member" })));
     setDepartments((departmentResult.data ?? []).map((department) => ({ id: department.id, name: department.name })));
     setLoading(false);
   }
