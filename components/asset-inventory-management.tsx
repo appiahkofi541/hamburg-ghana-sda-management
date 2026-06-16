@@ -150,7 +150,7 @@ export function AssetInventoryManagement() {
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [showAdjustmentForm, setShowAdjustmentForm] = useState(false);
 
-  const canManageRecords = roles.some((role) => role === "super_admin" || role === "secretary");
+  const canManageAssignments = roles.some((role) => role === "super_admin" || role === "secretary" || role === "treasurer");
   const canManageValues = roles.some((role) => role === "super_admin" || role === "secretary" || role === "treasurer");
   const filteredAssets = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -277,7 +277,7 @@ export function AssetInventoryManagement() {
 
   async function checkOutAsset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canManageRecords) { setError("Only Admin or Secretary can manage assignments."); return; }
+    if (!canManageAssignments) { setError("Only Admin, Secretary, or Treasurer can manage assignments."); return; }
     if (!assignmentForm.assetId) { setError("Select an asset to assign."); return; }
     if (assignmentForm.assignedToType === "member" && !assignmentForm.memberId) { setError("Select the assigned member."); return; }
     if (assignmentForm.assignedToType === "department" && !assignmentForm.departmentId) { setError("Select the assigned department."); return; }
@@ -301,7 +301,7 @@ export function AssetInventoryManagement() {
   }
 
   async function checkInAssignment(assignment: Assignment) {
-    if (!canManageRecords) { setError("Only Admin or Secretary can manage assignments."); return; }
+    if (!canManageAssignments) { setError("Only Admin, Secretary, or Treasurer can manage assignments."); return; }
     setSaving(true);
     const supabase = createClient();
     if (supabase) {
@@ -439,10 +439,10 @@ export function AssetInventoryManagement() {
       </div>
 
       {activeTab === "assets" && <AssetsTab assets={filteredAssets} loading={loading} canManage={canManageValues} query={query} setQuery={setQuery} onEdit={openAssetForm} />}
-      {activeTab === "assignments" && <AssignmentsTab assets={assets} assignments={assignments} canManage={canManageRecords} assetName={assetName} assigneeName={assigneeName} onAdd={() => openAssignmentForm()} onCheckIn={checkInAssignment} />}
+      {activeTab === "assignments" && <AssignmentsTab assets={assets} assignments={assignments} canManage={canManageAssignments} assetName={assetName} assigneeName={assigneeName} onAdd={() => openAssignmentForm()} onCheckIn={checkInAssignment} />}
       {activeTab === "maintenance" && <MaintenanceTab maintenance={maintenance} canManage={canManageValues} assetName={assetName} onAdd={() => setShowMaintenanceForm(true)} />}
       {activeTab === "inventory" && <InventoryTab inventory={inventory} purchases={purchases} adjustments={adjustments} canManage={canManageValues} inventoryName={inventoryName} onAdd={() => openInventoryForm()} onEdit={openInventoryForm} onPurchase={() => setShowPurchaseForm(true)} onAdjust={() => setShowAdjustmentForm(true)} />}
-      {activeTab === "qr" && <QrTab assets={assets} scanCode={scanCode} setScanCode={setScanCode} scannedAsset={scannedAsset} onCheckOut={openAssignmentForm} />}
+      {activeTab === "qr" && <QrTab assets={assets} canManageAssignments={canManageAssignments} scanCode={scanCode} setScanCode={setScanCode} scannedAsset={scannedAsset} onCheckOut={openAssignmentForm} />}
       {activeTab === "reports" && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">{reportRows.map(([label, value]) => <Card className="p-5" key={label}><p className="text-sm font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-navy">{value}</p></Card>)}</section>}
 
       {showAssetForm && <AssetModal form={assetForm} setForm={setAssetForm} categories={categories} saving={saving} onClose={() => setShowAssetForm(false)} onSubmit={saveAsset} />}
@@ -475,9 +475,9 @@ function HistoryCard({ title, rows }: { title: string; rows: string[][] }) {
   return <Card><div className="border-b border-slate-100 p-4"><h2 className="font-bold text-navy">{title}</h2></div><div className="space-y-3 p-4">{rows.map((row, index) => <div className="rounded-lg border border-slate-100 p-3" key={`${row[0]}-${index}`}><p className="font-semibold text-navy">{row[0]}</p><p className="mt-1 text-xs text-slate-400">{row.slice(1).join(" · ")}</p></div>)}{rows.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No records found.</p>}</div></Card>;
 }
 
-function QrTab({ assets, scanCode, setScanCode, scannedAsset, onCheckOut }: { assets: Asset[]; scanCode: string; setScanCode: (value: string) => void; scannedAsset?: Asset; onCheckOut: (assetId: string) => void }) {
+function QrTab({ assets, canManageAssignments, scanCode, setScanCode, scannedAsset, onCheckOut }: { assets: Asset[]; canManageAssignments: boolean; scanCode: string; setScanCode: (value: string) => void; scannedAsset?: Asset; onCheckOut: (assetId: string) => void }) {
   const lookupUrl = scannedAsset ? assetLookupUrl(scannedAsset.assetNumber) : "";
-  return <div className="grid gap-6 xl:grid-cols-[0.8fr_1.4fr]"><Card className="p-5"><h2 className="font-bold text-navy">Scan QR / Asset ID</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Asset ID or Lookup URL<input className={fieldClass} placeholder="AST-2026-001 or https://.../assets/lookup/AST-2026-001" value={scanCode} onChange={(event) => setScanCode(event.target.value)} /></label><p className="mt-3 text-xs leading-5 text-slate-400">Enter an asset ID or scanned lookup URL to view asset details and start check-in/check-out workflows.</p></Card><Card className="p-5">{scannedAsset ? <div className="grid gap-5 md:grid-cols-[auto_1fr]"><AssetQr asset={scannedAsset} /><div><h2 className="text-xl font-bold text-navy">{scannedAsset.name}</h2><p className="mt-1 text-sm text-slate-500">{scannedAsset.assetNumber} · {scannedAsset.categoryName}</p><p className="mt-2 break-all text-xs text-churchblue">{lookupUrl}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Info label="Serial Number" value={scannedAsset.serialNumber || "-"} /><Info label="Location" value={scannedAsset.location || "-"} /><Info label="Current Value" value={currency.format(scannedAsset.currentValue)} /><Info label="Status" value={titleCase(scannedAsset.status)} /></div><Button className="mt-4" disabled={scannedAsset.status !== "available"} onClick={() => onCheckOut(scannedAsset.id)}><LogOut className="h-4 w-4" /> Assign Asset</Button></div></div> : <p className="py-12 text-center text-sm text-slate-500">No asset selected. Try one of: {assets.slice(0, 3).map((asset) => asset.assetNumber).join(", ") || "AST-2026-001"}.</p>}</Card></div>;
+  return <div className="grid gap-6 xl:grid-cols-[0.8fr_1.4fr]"><Card className="p-5"><h2 className="font-bold text-navy">Scan QR / Asset ID</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Asset ID or Lookup URL<input className={fieldClass} placeholder="AST-2026-001 or https://.../assets/lookup/AST-2026-001" value={scanCode} onChange={(event) => setScanCode(event.target.value)} /></label><p className="mt-3 text-xs leading-5 text-slate-400">Enter an asset ID or scanned lookup URL to view asset details and start check-in/check-out workflows.</p></Card><Card className="p-5">{scannedAsset ? <div className="grid gap-5 md:grid-cols-[auto_1fr]"><AssetQr asset={scannedAsset} /><div><h2 className="text-xl font-bold text-navy">{scannedAsset.name}</h2><p className="mt-1 text-sm text-slate-500">{scannedAsset.assetNumber} · {scannedAsset.categoryName}</p><p className="mt-2 break-all text-xs text-churchblue">{lookupUrl}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><Info label="Serial Number" value={scannedAsset.serialNumber || "-"} /><Info label="Location" value={scannedAsset.location || "-"} /><Info label="Current Value" value={currency.format(scannedAsset.currentValue)} /><Info label="Status" value={titleCase(scannedAsset.status)} /></div>{canManageAssignments && <Button className="mt-4" disabled={scannedAsset.status !== "available"} onClick={() => onCheckOut(scannedAsset.id)}><LogOut className="h-4 w-4" /> Assign Asset</Button>}</div></div> : <p className="py-12 text-center text-sm text-slate-500">No asset selected. Try one of: {assets.slice(0, 3).map((asset) => asset.assetNumber).join(", ") || "AST-2026-001"}.</p>}</Card></div>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {

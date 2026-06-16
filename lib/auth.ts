@@ -92,7 +92,8 @@ export function getPrimaryRole(userRoles: AppRole[]) {
 }
 
 export function toAppRole(value: string | null | undefined) {
-  return value ? LEGACY_ROLE_MAP[value] ?? null : null;
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? LEGACY_ROLE_MAP[normalized] ?? null : null;
 }
 
 export function normalizeRoles(values: (string | null | undefined)[]) {
